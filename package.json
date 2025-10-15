@@ -1,0 +1,42 @@
+{
+  "name": "myssh",
+  "version": "1.0.0",
+  "description": "SSH 管理工具 - 基于 Electron + Vue 3 + Element Plus",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "electron": "electron .",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "preview": "vite preview"
+  },
+  "keywords": ["ssh", "electron", "vue", "element-plus"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^4.4.0",
+    "concurrently": "^8.2.0",
+    "electron": "^27.0.0",
+    "electron-builder": "^24.6.4",
+    "vite": "^4.4.9",
+    "wait-on": "^7.0.1"
+  },
+  "dependencies": {
+    "vue": "^3.3.4",
+    "element-plus": "^2.3.8",
+    "node-ssh": "^13.1.0",
+    "@element-plus/icons-vue": "^2.1.0"
+  },
+  "build": {
+    "appId": "com.example.myssh",
+    "productName": "MySSH",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ]
+  }
+}

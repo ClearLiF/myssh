@@ -1,0 +1,375 @@
+const { app, BrowserWindow, ipcMain, dialog } = require('electron')
+const path = require('path')
+const { NodeSSH } = require('node-ssh')
+
+// 保持对窗口对象的全局引用
+let mainWindow
+let sshConnections = new Map()
+
+async function createWindow() {
+  // 创建浏览器窗口
+  mainWindow = new BrowserWindow({
+    width: 1400,
+    height: 900,
+    minWidth: 1200,
+    minHeight: 800,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      enableRemoteModule: false,
+      preload: path.join(__dirname, 'preload.js')
+    },
+    icon: path.join(__dirname, 'assets/icon.png'),
+    titleBarStyle: 'default',
+    show: true,  // 立即显示
+    center: true,  // 居中显示
+    alwaysOnTop: false,
+    focusable: true,
+    skipTaskbar: false
+  })
+
+  // 加载应用
+  // 始终尝试加载开发服务器，如果失败则加载生产文件
+  console.log('尝试加载开发服务器...')
+  
+  try {
+    await mainWindow.loadURL('http://localhost:5173')
+    console.log('开发服务器加载成功')
+    // 打开开发者工具
+    mainWindow.webContents.openDevTools()
+  } catch (error) {
+    console.error('无法连接到开发服务器，尝试加载生产文件...', error.message)
+    try {
+      await mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+      console.log('生产文件加载成功')
+    } catch (prodError) {
+      console.error('生产文件也无法加载，显示错误页面', prodError.message)
+      await mainWindow.loadURL('data:text/html,<h1>加载失败</h1><p>请确保运行了 npm run dev 或 npm run build</p>')
+    }
+  }
+
+  // 强制显示窗口
+  mainWindow.show()
+  
+  // 确保窗口在最前面
+  mainWindow.focus()
+  
+  // 当窗口准备好显示时再次确保显示
+  mainWindow.once('ready-to-show', () => {
+    console.log('窗口准备就绪，显示窗口')
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.moveTop()
+  })
+
+  // 当窗口关闭时触发
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
+
+  // 处理窗口大小变化
+  mainWindow.on('resize', () => {
+    // 可以在这里处理窗口大小变化逻辑
+  })
+}
+
+// 当 Electron 完成初始化并准备创建浏览器窗口时调用此方法
+app.whenReady().then(async () => {
+  await createWindow()
+  
+  // 强制应用获得焦点
+  app.focus({ steal: true })
+
+  app.on('activate', () => {
+    console.log('应用被激活')
+    // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
+    // 通常在应用程序中重新创建一个窗口。
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    } else {
+      // 如果窗口存在但被隐藏，显示它
+      mainWindow?.show()
+      mainWindow?.focus()
+    }
+  })
+})
+
+// 当所有窗口都关闭时退出应用
+app.on('window-all-closed', () => {
+  // 在 macOS 上，除非用户用 Cmd + Q 确定地退出，
+  // 否则绝大部分应用及其菜单栏会保持激活。
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})
+
+// 处理应用激活事件
+app.on('activate', () => {
+  // 在 macOS 上，当点击 dock 图标并且没有其他窗口打开时，
+  // 通常在应用程序中重新创建一个窗口。
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow()
+  }
+})
+
+// IPC 处理器 - SSH 连接
+ipcMain.handle('ssh:connect', async (event, config) => {
+  try {
+    console.log('收到 SSH 连接请求:', config)
+    
+    const ssh = new NodeSSH()
+    
+    // 只提取需要的配置属性，避免序列化问题
+    const connectionConfig = {
+      host: String(config.host),
+      port: Number(config.port),
+      username: String(config.username),
+      readyTimeout: 20000,
+      keepaliveInterval: 10000
+    }
+
+    if (config.authType === 'password' && config.password) {
+      connectionConfig.password = String(config.password)
+    } else if (config.authType === 'privateKey' && config.privateKeyPath) {
+      connectionConfig.privateKey = String(config.privateKeyPath)
+    }
+
+    console.log('尝试连接 SSH:', { host: connectionConfig.host, port: connectionConfig.port, username: connectionConfig.username })
+    
+    await ssh.connect(connectionConfig)
+    
+    const connectionId = Date.now().toString()
+    sshConnections.set(connectionId, ssh)
+    
+    console.log('SSH 连接成功，连接ID:', connectionId)
+    
+    return {
+      success: true,
+      connectionId: connectionId,
+      message: 'SSH 连接成功'
+    }
+  } catch (error) {
+    console.error('SSH 连接失败:', error)
+    return {
+      success: false,
+      message: error.message || '连接失败'
+    }
+  }
+})
+
+// IPC 处理器 - SSH 断开连接
+ipcMain.handle('ssh:disconnect', async (event, connectionId) => {
+  try {
+    const ssh = sshConnections.get(connectionId)
+    if (ssh) {
+      ssh.dispose()
+      sshConnections.delete(connectionId)
+      return { success: true, message: '连接已断开' }
+    }
+    return { success: false, message: '连接不存在' }
+  } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 执行 SSH 命令
+ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
+  try {
+    console.log('执行 SSH 命令:', { connectionId, command })
+    
+    const ssh = sshConnections.get(String(connectionId))
+    if (!ssh) {
+      throw new Error('SSH 连接不存在')
+    }
+    
+    // 如果是 cd 命令，需要保存工作目录状态
+    let actualCommand = String(command)
+    
+    // 获取当前工作目录（如果有的话）
+    if (!ssh.currentDir) {
+      ssh.currentDir = '~' // 默认是 home 目录
+    }
+    
+    if (actualCommand.startsWith('cd ')) {
+      const targetDir = actualCommand.substring(3).trim() || '~'
+      // 更新当前目录
+      if (targetDir.startsWith('/')) {
+        ssh.currentDir = targetDir
+      } else if (targetDir === '~') {
+        ssh.currentDir = '~'
+      } else {
+        ssh.currentDir = ssh.currentDir === '~' ? targetDir : `${ssh.currentDir}/${targetDir}`
+      }
+      // 对于 cd 命令，我们执行它但也要更新提示符
+      actualCommand = `cd ${targetDir} && pwd`
+    } else if (!actualCommand.startsWith('cd')) {
+      // 对于非 cd 命令，在当前目录下执行
+      if (ssh.currentDir && ssh.currentDir !== '~') {
+        actualCommand = `cd ${ssh.currentDir} && ${actualCommand}`
+      }
+    }
+    
+    const result = await ssh.execCommand(actualCommand)
+    
+    console.log('命令执行结果:', { 
+      stdout: result.stdout || '(空)', 
+      stderr: result.stderr || '(空)', 
+      code: result.code 
+    })
+    
+    return {
+      success: true,
+      stdout: result.stdout || '',
+      stderr: result.stderr || '',
+      exitCode: result.code || 0,
+      currentDir: ssh.currentDir || '~'
+    }
+  } catch (error) {
+    console.error('命令执行失败:', error)
+    return {
+      success: false,
+      message: error.message || '命令执行失败'
+    }
+  }
+})
+
+// IPC 处理器 - SFTP 操作
+ipcMain.handle('sftp:list', async (event, { connectionId, path }) => {
+  try {
+    const ssh = sshConnections.get(connectionId)
+    if (!ssh) {
+      throw new Error('SSH 连接不存在')
+    }
+    
+    const sftp = ssh.sftp()
+    const files = await sftp.readdir(path)
+    
+    return {
+      success: true,
+      files: files.map(file => ({
+        name: file.filename,
+        size: file.attrs.size,
+        isDirectory: file.attrs.isDirectory(),
+        modifiedTime: new Date(file.attrs.mtime * 1000).toISOString()
+      }))
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 文件上传
+ipcMain.handle('sftp:upload', async (event, { connectionId, localPath, remotePath }) => {
+  try {
+    const ssh = sshConnections.get(connectionId)
+    if (!ssh) {
+      throw new Error('SSH 连接不存在')
+    }
+    
+    await ssh.putFile(localPath, remotePath)
+    
+    return {
+      success: true,
+      message: '文件上传成功'
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 文件下载
+ipcMain.handle('sftp:download', async (event, { connectionId, remotePath, localPath }) => {
+  try {
+    const ssh = sshConnections.get(connectionId)
+    if (!ssh) {
+      throw new Error('SSH 连接不存在')
+    }
+    
+    await ssh.getFile(localPath, remotePath)
+    
+    return {
+      success: true,
+      message: '文件下载成功'
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 选择文件
+ipcMain.handle('dialog:openFile', async (event, options) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      ...options
+    })
+    
+    if (!result.canceled) {
+      return { success: true, filePath: result.filePaths[0] }
+    } else {
+      return { success: false, message: '用户取消了文件选择' }
+    }
+  } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 选择目录
+ipcMain.handle('dialog:openDirectory', async (event) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory']
+    })
+    
+    if (!result.canceled) {
+      return { success: true, directoryPath: result.filePaths[0] }
+    } else {
+      return { success: false, message: '用户取消了目录选择' }
+    }
+  } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 保存文件
+ipcMain.handle('dialog:saveFile', async (event, options) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, options)
+    
+    if (!result.canceled) {
+      return { success: true, filePath: result.filePath }
+    } else {
+      return { success: false, message: '用户取消了文件保存' }
+    }
+  } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
+// 安全处理：防止新窗口创建
+app.on('web-contents-created', (event, contents) => {
+  contents.on('new-window', (event, navigationUrl) => {
+    event.preventDefault()
+    // 可以在这里处理新窗口逻辑，比如在主窗口中打开
+  })
+})
+
+// 处理未捕获的异常
+process.on('uncaughtException', (error) => {
+  console.error('未捕获的异常:', error)
+  // 在生产环境中，你可能想要记录错误并优雅地处理
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('未处理的 Promise 拒绝:', reason)
+  // 在生产环境中，你可能想要记录错误并优雅地处理
+})
