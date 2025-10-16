@@ -1,5 +1,77 @@
 <template>
   <div class="ssh-terminal">
+    <!-- 连接列表区域 -->
+    <el-card class="connections-list-card">
+      <template #header>
+        <div class="card-header">
+          <span>保存的连接</span>
+          <el-button type="primary" size="small" @click="showNewConnectionDialog">
+            <el-icon><Plus /></el-icon>
+            新建连接
+          </el-button>
+        </div>
+      </template>
+      
+      <div class="connections-list">
+        <div 
+          v-if="savedConnections.length === 0" 
+          class="empty-connections"
+        >
+          <el-empty description="暂无保存的连接">
+            <el-button type="primary" @click="showNewConnectionDialog">新建连接</el-button>
+          </el-empty>
+        </div>
+        
+        <div 
+          v-for="(conn, index) in savedConnections" 
+          :key="index"
+          class="connection-item"
+          :class="{ 'active': currentConnectionIndex === index }"
+          @click="selectConnection(index)"
+        >
+          <div class="connection-info">
+            <div class="connection-name">
+              <el-icon><Monitor /></el-icon>
+              <strong>{{ conn.name || `${conn.username}@${conn.host}` }}</strong>
+            </div>
+            <div class="connection-details">
+              <el-tag size="small" type="info">{{ conn.host }}:{{ conn.port }}</el-tag>
+              <el-tag size="small">{{ conn.username }}</el-tag>
+              <el-tag size="small" :type="conn.authType === 'password' ? 'warning' : 'success'">
+                {{ conn.authType === 'password' ? '密码' : '私钥' }}
+              </el-tag>
+            </div>
+          </div>
+          <div class="connection-actions">
+            <el-button 
+              type="primary" 
+              size="small"
+              @click.stop="quickConnect(index)"
+              :loading="connecting && currentConnectionIndex === index"
+              :disabled="isConnected"
+            >
+              连接
+            </el-button>
+            <el-button 
+              size="small"
+              @click.stop="editConnection(index)"
+              :disabled="isConnected"
+            >
+              编辑
+            </el-button>
+            <el-button 
+              type="danger" 
+              size="small"
+              @click.stop="deleteConnection(index)"
+              :disabled="isConnected"
+            >
+              删除
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <!-- 连接配置区域 -->
     <el-card class="connection-card">
       <template #header>
@@ -185,6 +257,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Plus, Monitor } from '@element-plus/icons-vue'
 
 // SSH 配置
 const sshConfig = ref({
@@ -215,6 +288,10 @@ const commandInputRef = ref(null)
 
 // SSH 连接 ID
 const connectionId = ref(null)
+
+// 保存的连接列表
+const savedConnections = ref([])
+const currentConnectionIndex = ref(-1)
 
 // 检测是否在 Electron 环境中
 const isElectronMode = computed(() => {
@@ -536,33 +613,174 @@ const formatOutput = (content) => {
   return escaped.replace(/\n/g, '<br>')
 }
 
-// 保存连接配置
-const saveConnection = () => {
-  const config = {
-    name: `${sshConfig.value.username}@${sshConfig.value.host}`,
-    ...sshConfig.value
-  }
-  
+// 加载所有保存的连接
+const loadSavedConnections = () => {
   try {
-    const savedConnections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
-    savedConnections.push(config)
-    localStorage.setItem('ssh-connections', JSON.stringify(savedConnections))
-    ElMessage.success('连接配置已保存')
+    const connections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
+    savedConnections.value = connections
   } catch (error) {
+    console.error('加载连接配置失败:', error)
+    savedConnections.value = []
+  }
+}
+
+// 保存连接列表到 localStorage
+const saveSavedConnections = () => {
+  try {
+    localStorage.setItem('ssh-connections', JSON.stringify(savedConnections.value))
+  } catch (error) {
+    console.error('保存连接配置失败:', error)
     ElMessage.error('保存配置失败')
   }
 }
 
-// 加载连接配置
-const loadConnection = async () => {
+// 显示新建连接对话框
+const showNewConnectionDialog = async () => {
   try {
-    const savedConnections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
+    const { value: name } = await ElMessageBox.prompt(
+      '请输入连接名称',
+      '新建连接',
+      {
+        confirmButtonText: '创建',
+        cancelButtonText: '取消',
+        inputPattern: /.+/,
+        inputErrorMessage: '连接名称不能为空'
+      }
+    )
     
-    if (savedConnections.length === 0) {
-      ElMessage.info('没有保存的连接配置')
-      return
+    if (name) {
+      const newConnection = {
+        name: name,
+        host: '',
+        port: 22,
+        username: '',
+        authType: 'password',
+        password: '',
+        privateKeyPath: ''
+      }
+      savedConnections.value.push(newConnection)
+      saveSavedConnections()
+      currentConnectionIndex.value = savedConnections.value.length - 1
+      Object.assign(sshConfig.value, newConnection)
+      ElMessage.success('连接已创建，请配置连接信息')
+    }
+  } catch {
+    // 用户取消
+  }
+}
+
+// 选择连接
+const selectConnection = (index) => {
+  if (isConnected.value) {
+    ElMessage.warning('请先断开当前连接')
+    return
+  }
+  
+  currentConnectionIndex.value = index
+  const connection = savedConnections.value[index]
+  Object.assign(sshConfig.value, connection)
+}
+
+// 快速连接
+const quickConnect = async (index) => {
+  if (isConnected.value) {
+    ElMessage.warning('请先断开当前连接')
+    return
+  }
+  
+  currentConnectionIndex.value = index
+  const connection = savedConnections.value[index]
+  Object.assign(sshConfig.value, connection)
+  await connectSSH()
+}
+
+// 编辑连接
+const editConnection = (index) => {
+  currentConnectionIndex.value = index
+  const connection = savedConnections.value[index]
+  Object.assign(sshConfig.value, connection)
+  ElMessage.info('请在下方配置区域修改连接信息')
+}
+
+// 删除连接
+const deleteConnection = async (index) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除连接 "${savedConnections.value[index].name}" 吗？`,
+      '确认删除',
+      {
+        confirmButtonText: '删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
+    savedConnections.value.splice(index, 1)
+    saveSavedConnections()
+    
+    if (currentConnectionIndex.value === index) {
+      currentConnectionIndex.value = -1
+      // 清空配置表单
+      sshConfig.value = {
+        host: '',
+        port: 22,
+        username: '',
+        authType: 'password',
+        password: '',
+        privateKeyPath: ''
+      }
+    } else if (currentConnectionIndex.value > index) {
+      currentConnectionIndex.value--
     }
     
+    ElMessage.success('连接已删除')
+  } catch {
+    // 用户取消
+  }
+}
+
+// 保存当前连接配置
+const saveConnection = () => {
+  if (currentConnectionIndex.value >= 0) {
+    // 更新现有连接
+    Object.assign(savedConnections.value[currentConnectionIndex.value], sshConfig.value)
+    saveSavedConnections()
+    ElMessage.success('连接配置已更新')
+  } else {
+    // 保存为新连接
+    ElMessageBox.prompt(
+      '请输入连接名称',
+      '保存连接',
+      {
+        confirmButtonText: '保存',
+        cancelButtonText: '取消',
+        inputValue: `${sshConfig.value.username}@${sshConfig.value.host}`,
+        inputPattern: /.+/,
+        inputErrorMessage: '连接名称不能为空'
+      }
+    ).then(({ value }) => {
+      const config = {
+        name: value,
+        ...sshConfig.value
+      }
+      savedConnections.value.push(config)
+      saveSavedConnections()
+      currentConnectionIndex.value = savedConnections.value.length - 1
+      ElMessage.success('连接配置已保存')
+    }).catch(() => {
+      // 用户取消
+    })
+  }
+}
+
+// 加载连接配置（保留用于兼容）
+const loadConnection = async () => {
+  if (savedConnections.value.length === 0) {
+    ElMessage.info('没有保存的连接配置')
+    return
+  }
+  
+  try {
     const { value: selectedIndex } = await ElMessageBox.prompt(
       '选择要加载的连接配置:',
       '加载配置',
@@ -570,15 +788,16 @@ const loadConnection = async () => {
         confirmButtonText: '加载',
         cancelButtonText: '取消',
         inputType: 'select',
-        inputOptions: savedConnections.reduce((acc, conn, index) => {
+        inputOptions: savedConnections.value.reduce((acc, conn, index) => {
           acc[index] = conn.name || `${conn.username}@${conn.host}`
           return acc
         }, {})
       }
     )
     
-    const selected = savedConnections[parseInt(selectedIndex)]
+    const selected = savedConnections.value[parseInt(selectedIndex)]
     if (selected) {
+      currentConnectionIndex.value = parseInt(selectedIndex)
       Object.assign(sshConfig.value, selected)
       ElMessage.success('配置已加载')
     }
@@ -613,9 +832,14 @@ const selectPrivateKey = async () => {
 
 // 组件挂载和卸载
 onMounted(() => {
+  // 加载保存的连接列表
+  loadSavedConnections()
+  
   // 初始化默认配置
   const username = window.electronAPI?.system?.env?.USER || 'root'
-  sshConfig.value.username = username
+  if (!sshConfig.value.username) {
+    sshConfig.value.username = username
+  }
   
   // 添加欢迎信息
   addTerminalLine({
@@ -625,7 +849,9 @@ onMounted(() => {
   })
   addTerminalLine({
     type: 'system', 
-    content: '请配置 SSH 连接信息并点击连接按钮',
+    content: savedConnections.value.length > 0 
+      ? '请从上方列表选择连接，或点击"新建连接"按钮'
+      : '请点击"新建连接"创建您的第一个SSH连接',
     timestamp: new Date()
   })
 })
@@ -643,6 +869,78 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 20px;
   height: 100%;
+}
+
+.connections-list-card {
+  flex-shrink: 0;
+  max-height: 300px;
+}
+
+.connections-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.empty-connections {
+  padding: 20px;
+  text-align: center;
+}
+
+.connection-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: #fff;
+}
+
+.connection-item:hover {
+  background: #f5f7fa;
+  border-color: #409eff;
+  transform: translateX(4px);
+  box-shadow: 0 2px 8px rgba(64, 158, 255, 0.1);
+}
+
+.connection-item.active {
+  border-color: #409eff;
+  background: #ecf5ff;
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.2);
+}
+
+.connection-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.connection-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.connection-name .el-icon {
+  color: #409eff;
+  font-size: 18px;
+}
+
+.connection-details {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.connection-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 16px;
 }
 
 .connection-card {

@@ -7,6 +7,8 @@ let mainWindow
 let sshConnections = new Map()
 
 async function createWindow() {
+  console.log('开始创建窗口...')
+  
   // 创建浏览器窗口
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -19,13 +21,20 @@ async function createWindow() {
       enableRemoteModule: false,
       preload: path.join(__dirname, 'preload.js')
     },
-    icon: path.join(__dirname, 'assets/icon.png'),
+    // icon: path.join(__dirname, 'assets/icon.png'),  // 图标文件可能不存在
     titleBarStyle: 'default',
-    show: true,  // 立即显示
+    show: false,  // 等待加载完成后再显示
     center: true,  // 居中显示
-    alwaysOnTop: false,
-    focusable: true,
-    skipTaskbar: false
+    backgroundColor: '#ffffff'
+  })
+  
+  console.log('窗口对象已创建')
+
+  // 当窗口准备好显示时再显示
+  mainWindow.once('ready-to-show', () => {
+    console.log('窗口准备就绪，显示窗口')
+    mainWindow.show()
+    mainWindow.focus()
   })
 
   // 加载应用
@@ -48,19 +57,7 @@ async function createWindow() {
     }
   }
 
-  // 强制显示窗口
-  mainWindow.show()
-  
-  // 确保窗口在最前面
-  mainWindow.focus()
-  
-  // 当窗口准备好显示时再次确保显示
-  mainWindow.once('ready-to-show', () => {
-    console.log('窗口准备就绪，显示窗口')
-    mainWindow.show()
-    mainWindow.focus()
-    mainWindow.moveTop()
-  })
+  console.log('页面加载完成，准备显示窗口')
 
   // 当窗口关闭时触发
   mainWindow.on('closed', () => {
@@ -236,24 +233,55 @@ ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
 // IPC 处理器 - SFTP 操作
 ipcMain.handle('sftp:list', async (event, { connectionId, path }) => {
   try {
-    const ssh = sshConnections.get(connectionId)
+    console.log('SFTP list 请求:', { connectionId, path })
+    
+    const ssh = sshConnections.get(String(connectionId))
     if (!ssh) {
       throw new Error('SSH 连接不存在')
     }
     
-    const sftp = ssh.sftp()
-    const files = await sftp.readdir(path)
+    // 使用 execCommand 来列出文件
+    const command = path === '/' ? 'ls -la /' : `ls -la ${path}`
+    const result = await ssh.execCommand(command)
+    
+    if (result.code !== 0) {
+      throw new Error(result.stderr || '列出文件失败')
+    }
+    
+    // 解析 ls -la 的输出
+    const lines = result.stdout.split('\n').filter(line => line.trim())
+    const files = []
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      if (line.startsWith('total') || line === '') continue
+      
+      const parts = line.split(/\s+/)
+      if (parts.length < 9) continue
+      
+      const permissions = parts[0]
+      const size = parseInt(parts[4]) || 0
+      const name = parts.slice(8).join(' ')
+      
+      // 跳过 . 和 ..
+      if (name === '.' || name === '..') continue
+      
+      files.push({
+        name: name,
+        size: size,
+        isDirectory: permissions.startsWith('d'),
+        modifiedTime: new Date().toISOString() // 简化版本，可以后续解析实际时间
+      })
+    }
+    
+    console.log('SFTP list 结果:', files.length, '个文件')
     
     return {
       success: true,
-      files: files.map(file => ({
-        name: file.filename,
-        size: file.attrs.size,
-        isDirectory: file.attrs.isDirectory(),
-        modifiedTime: new Date(file.attrs.mtime * 1000).toISOString()
-      }))
+      files: files
     }
   } catch (error) {
+    console.error('SFTP list 失败:', error)
     return {
       success: false,
       message: error.message

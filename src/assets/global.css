@@ -1,0 +1,228 @@
+/* 全局样式重置和优化 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* 字体优化 - 使用更清晰的字体栈 */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'SimSun', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1;
+  font-kerning: normal;
+}
+
+/* 代码字体 */
+code, pre, .monospace {
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Monaco', 'Courier New', monospace;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+  border-radius: 0;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #424242;
+  border-radius: 5px;
+  border: 2px solid #1e1e1e;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4e4e4e;
+}
+
+::-webkit-scrollbar-corner {
+  background: #1e1e1e;
+}
+
+/* Element UI 样式覆盖 - 使其更现代 */
+.el-button {
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border: none;
+  font-size: 13px;
+  padding: 8px 16px;
+}
+
+.el-button--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.el-button--primary:hover {
+  background: linear-gradient(135deg, #7c8ef0 0%, #8b5cb5 100%);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  transform: translateY(-1px);
+}
+
+.el-button--danger {
+  background: linear-gradient(135deg, #f56c6c 0%, #c45656 100%);
+  box-shadow: 0 2px 8px rgba(245, 108, 108, 0.3);
+}
+
+.el-button--small {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+.el-input__wrapper {
+  border-radius: 6px;
+  box-shadow: none;
+  border: 1px solid #3c3c3c;
+  transition: all 0.2s;
+}
+
+.el-input__wrapper:hover {
+  border-color: #515151;
+}
+
+.el-input__wrapper.is-focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.el-input__inner {
+  font-size: 13px;
+}
+
+.el-tag {
+  border-radius: 4px;
+  border: none;
+  font-size: 11px;
+  padding: 0 8px;
+  height: 22px;
+  line-height: 22px;
+}
+
+.el-card {
+  border-radius: 8px;
+  border: 1px solid #3c3c3c;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.el-dialog {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.el-tabs__item {
+  font-size: 13px;
+  height: 36px;
+  line-height: 36px;
+  padding: 0 16px;
+}
+
+.el-table {
+  font-size: 13px;
+}
+
+.el-table th {
+  font-weight: 600;
+}
+
+/* 动画 */
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Element UI 表格样式覆盖 - 确保没有白色背景 */
+.el-table {
+  background-color: transparent !important;
+  color: #c9d1d9 !important;
+}
+
+.el-table tr,
+.el-table th,
+.el-table td {
+  background-color: transparent !important;
+  color: #c9d1d9 !important;
+}
+
+.el-table__header-wrapper,
+.el-table__body-wrapper,
+.el-table__footer-wrapper {
+  background-color: transparent !important;
+}
+
+.el-table__inner-wrapper {
+  background-color: transparent !important;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+
+.el-table__body tr:hover > td {
+  background-color: rgba(102, 126, 234, 0.08) !important;
+}
+
+.el-table th.el-table__cell {
+  background-color: transparent !important;
+  color: #8b949e !important;
+}
+
+.el-table__empty-block {
+  background-color: transparent !important;
+}
+
+/* 工具类 */
+.glass-effect {
+  background: rgba(45, 45, 48, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.shadow-sm {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+}
+
+.shadow-lg {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.transition-all {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
