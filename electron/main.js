@@ -5,6 +5,7 @@ const { NodeSSH } = require('node-ssh')
 // 保持对窗口对象的全局引用
 let mainWindow
 let sshConnections = new Map()
+let activeStreams = new Map() // 保存活跃的流式连接
 
 async function createWindow() {
   console.log('开始创建窗口...')
@@ -169,7 +170,7 @@ ipcMain.handle('ssh:disconnect', async (event, connectionId) => {
   }
 })
 
-// IPC 处理器 - 执行 SSH 命令
+// IPC 处理器 - 执行 SSH 命令（支持实时流式输出）
 ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
   try {
     console.log('执行 SSH 命令:', { connectionId, command })
@@ -206,26 +207,144 @@ ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
       }
     }
     
-    const result = await ssh.execCommand(actualCommand)
+    // 检查是否是流式命令（如 tail -f, docker logs -f 等）
+    const isStreamingCommand = actualCommand.includes(' -f') || 
+                               actualCommand.includes('tail -f') || 
+                               actualCommand.includes('docker logs')
     
-    console.log('命令执行结果:', { 
-      stdout: result.stdout || '(空)', 
-      stderr: result.stderr || '(空)', 
-      code: result.code 
-    })
-    
-    return {
-      success: true,
-      stdout: result.stdout || '',
-      stderr: result.stderr || '',
-      exitCode: result.code || 0,
-      currentDir: ssh.currentDir || '~'
+    if (isStreamingCommand) {
+      // 使用流式执行
+      return new Promise((resolve, reject) => {
+        ssh.connection.exec(actualCommand, (err, stream) => {
+          if (err) {
+            reject(err)
+            return
+          }
+          
+          // 保存stream以便可以中断
+          activeStreams.set(String(connectionId), stream)
+          
+          let hasOutput = false
+          let resolved = false
+          
+          // 监听标准输出
+          stream.on('data', (data) => {
+            hasOutput = true
+            const output = data.toString()
+            console.log('实时输出:', output)
+            // 发送实时数据到前端
+            event.sender.send('ssh:stream-data', {
+              connectionId,
+              type: 'stdout',
+              data: output
+            })
+          })
+          
+          // 监听错误输出
+          stream.stderr.on('data', (data) => {
+            hasOutput = true
+            const output = data.toString()
+            console.log('实时错误输出:', output)
+            event.sender.send('ssh:stream-data', {
+              connectionId,
+              type: 'stderr',
+              data: output
+            })
+          })
+          
+          // 命令结束
+          stream.on('close', (code, signal) => {
+            console.log('命令执行完成，退出码:', code, '信号:', signal)
+            activeStreams.delete(String(connectionId))
+            event.sender.send('ssh:stream-end', { connectionId })
+            if (!resolved) {
+              resolved = true
+              resolve({
+                success: true,
+                stdout: '',
+                stderr: '',
+                exitCode: code || 0,
+                currentDir: ssh.currentDir || '~',
+                streaming: true
+              })
+            }
+          })
+          
+          // 如果2秒后还没有输出，说明命令已经开始运行
+          setTimeout(() => {
+            if (!hasOutput && !resolved) {
+              resolved = true
+              resolve({
+                success: true,
+                stdout: '',
+                stderr: '',
+                exitCode: 0,
+                currentDir: ssh.currentDir || '~',
+                streaming: true
+              })
+            }
+          }, 2000)
+        })
+      })
+    } else {
+      // 普通命令，使用原来的方式
+      const result = await ssh.execCommand(actualCommand)
+      
+      console.log('命令执行结果:', { 
+        stdout: result.stdout || '(空)', 
+        stderr: result.stderr || '(空)', 
+        code: result.code 
+      })
+      
+      return {
+        success: true,
+        stdout: result.stdout || '',
+        stderr: result.stderr || '',
+        exitCode: result.code || 0,
+        currentDir: ssh.currentDir || '~',
+        streaming: false
+      }
     }
   } catch (error) {
     console.error('命令执行失败:', error)
     return {
       success: false,
       message: error.message || '命令执行失败'
+    }
+  }
+})
+
+// IPC 处理器 - 中断流式命令
+ipcMain.handle('ssh:interrupt', async (event, connectionId) => {
+  try {
+    console.log('收到中断请求:', connectionId)
+    const stream = activeStreams.get(String(connectionId))
+    
+    if (stream) {
+      console.log('发送 SIGINT 信号中断流式命令')
+      // 发送 Ctrl+C 信号（SIGINT）
+      stream.signal('INT')
+      // 或者直接结束stream
+      stream.end()
+      stream.close()
+      
+      activeStreams.delete(String(connectionId))
+      
+      return {
+        success: true,
+        message: '命令已中断'
+      }
+    }
+    
+    return {
+      success: false,
+      message: '没有找到活跃的流式命令'
+    }
+  } catch (error) {
+    console.error('中断命令失败:', error)
+    return {
+      success: false,
+      message: error.message || '中断失败'
     }
   }
 })

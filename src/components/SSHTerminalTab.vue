@@ -43,8 +43,15 @@
     </div>
 
     <!-- 终端区域 -->
-    <div class="terminal-container" :class="{ 'connected': isConnected }">
-      <div class="terminal-output" ref="terminalOutputRef" @click="focusInput">
+    <div 
+      class="terminal-container" 
+      :class="{ 'connected': isConnected }" 
+      @click="focusInput"
+      @keydown="handleContainerKeydown"
+      tabindex="0"
+      ref="terminalContainerRef"
+    >
+      <div class="terminal-output" ref="terminalOutputRef">
         <div v-if="!isConnected && !connecting" class="terminal-welcome">
           <p>{{ isElectronMode ? '🚀 真实 SSH 模式' : '⚠️ 模拟模式' }}</p>
           <p>点击上方"连接"按钮建立 SSH 连接</p>
@@ -58,19 +65,25 @@
           <span v-if="line.type === 'command'" class="command-prefix">{{ line.prompt }}</span>
           <span v-html="formatOutput(line.content)"></span>
         </div>
-      </div>
-      
-      <div class="terminal-input-line" v-if="isConnected">
-        <span class="prompt">{{ currentPrompt }}</span>
-        <input
-          ref="commandInputRef"
-          v-model="currentCommand"
-          @keydown="handleKeydown"
-          @keyup.enter="sendCommand"
-          placeholder="输入命令..."
-          class="command-input"
-          :disabled="!isConnected || commandExecuting"
-        />
+        
+        <!-- 流式命令提示 -->
+        <div v-if="isConnected && isStreamingCommand" class="streaming-indicator">
+          <span class="streaming-text">
+            <span class="streaming-dot"></span>
+            正在实时输出... (按 Ctrl+C 或 ⌘+C 中断)
+          </span>
+        </div>
+        
+        <!-- 内联命令输入行 -->
+        <div class="terminal-input-line" v-if="isConnected && !isStreamingCommand">
+          <span class="prompt">{{ currentPrompt }}</span>
+          <input
+            ref="commandInputRef"
+            v-model="currentCommand"
+            @keydown="handleKeydown"
+            class="command-input"
+          />
+        </div>
       </div>
     </div>
   </div>
@@ -98,6 +111,7 @@ const emit = defineEmits(['connected', 'disconnected'])
 const connecting = ref(false)
 const isConnected = ref(false)
 const commandExecuting = ref(false)
+const isStreamingCommand = ref(false)
 
 // 终端相关
 const terminalOutput = ref([])
@@ -109,9 +123,13 @@ const historyIndex = ref(-1)
 // DOM 引用
 const terminalOutputRef = ref(null)
 const commandInputRef = ref(null)
+const terminalContainerRef = ref(null)
 
 // SSH 连接 ID
 const connectionId = ref(null)
+
+// 流式数据缓冲区（累积不完整的行）
+const streamBuffer = ref('')
 
 // 检测是否在 Electron 环境中
 const isElectronMode = computed(() => {
@@ -121,7 +139,9 @@ const isElectronMode = computed(() => {
 // 添加终端行
 const addTerminalLine = (line) => {
   terminalOutput.value.push(line)
-  scrollToBottom()
+  nextTick(() => {
+    scrollToBottom()
+  })
 }
 
 // 清空终端
@@ -137,11 +157,19 @@ const scrollToBottom = async () => {
   }
 }
 
-// 聚焦输入框
+// 聚焦输入框或终端容器
 const focusInput = () => {
-  if (commandInputRef.value && isConnected.value) {
-    commandInputRef.value.focus()
-  }
+  nextTick(() => {
+    if (isStreamingCommand.value) {
+      // 流式命令时，聚焦到容器以接收键盘事件
+      if (terminalContainerRef.value) {
+        terminalContainerRef.value.focus()
+      }
+    } else if (commandInputRef.value && isConnected.value) {
+      // 正常状态，聚焦到输入框
+      commandInputRef.value.focus()
+    }
+  })
 }
 
 // 格式化输出
@@ -262,8 +290,45 @@ const disconnectSSH = async () => {
 // 发送命令
 const sendCommand = async () => {
   const command = currentCommand.value.trim()
-  if (!command || !isConnected.value || commandExecuting.value) return
   
+  // 如果未连接或正在执行命令，直接返回
+  if (!isConnected.value || commandExecuting.value) return
+  
+  // 如果是空命令，只添加一个空行
+  if (!command) {
+    addTerminalLine({
+      type: 'command',
+      prompt: currentPrompt.value,
+      content: '',
+      timestamp: new Date()
+    })
+    currentCommand.value = ''
+    await nextTick()
+    await nextTick()
+    scrollToBottom()
+    focusInput()
+    return
+  }
+  
+  // 检查是否是流式命令（提前判断）
+  const isStreaming = command.includes(' -f') || 
+                      command.includes('tail -f') || 
+                      command.includes('docker logs')
+  
+  // 如果是流式命令，立即标记状态并聚焦容器
+  if (isStreaming) {
+    isStreamingCommand.value = true
+    streamBuffer.value = '' // 清空流式数据缓冲区
+    await nextTick()
+    if (terminalContainerRef.value) {
+      terminalContainerRef.value.focus()
+    }
+  }
+  
+  // 标记正在执行
+  commandExecuting.value = true
+  
+  // 先将命令添加到历史
   if (command !== commandHistory.value[commandHistory.value.length - 1]) {
     commandHistory.value.push(command)
     if (commandHistory.value.length > 100) {
@@ -272,6 +337,7 @@ const sendCommand = async () => {
   }
   historyIndex.value = commandHistory.value.length
   
+  // 将命令行添加到输出历史
   addTerminalLine({
     type: 'command',
     prompt: currentPrompt.value,
@@ -279,18 +345,31 @@ const sendCommand = async () => {
     timestamp: new Date()
   })
   
+  // 立即清空输入框
   currentCommand.value = ''
-  commandExecuting.value = true
+  
+  // 等待 DOM 更新后滚动
+  await nextTick()
+  await nextTick()
+  scrollToBottom()
   
   try {
     if (window.electronAPI && connectionId.value) {
       const result = await window.electronAPI.ssh.execute(String(connectionId.value), String(command))
       
       if (result.success) {
+        // 更新当前目录
         if (result.currentDir) {
           currentPrompt.value = `${props.connection.username}@${props.connection.host}:${result.currentDir}$ `
         }
         
+        // 如果是流式命令，数据会通过 onStreamData 回调实时接收
+        if (result.streaming) {
+          // 不要立即解除 commandExecuting，等待 stream-end 事件
+          return
+        }
+        
+        // 显示标准输出
         if (result.stdout) {
           addTerminalLine({
             type: 'output',
@@ -298,6 +377,7 @@ const sendCommand = async () => {
             timestamp: new Date()
           })
         }
+        // 显示错误输出
         if (result.stderr) {
           addTerminalLine({
             type: 'error',
@@ -320,6 +400,12 @@ const sendCommand = async () => {
         output = 'file1.txt  file2.txt  folder1/'
       } else if (command === 'pwd') {
         output = '/home/user'
+      } else if (command === 'clear') {
+        clearTerminal()
+        commandExecuting.value = false
+        isStreamingCommand.value = false
+        focusInput()
+        return
       } else {
         output = `模拟执行: ${command}`
       }
@@ -337,16 +423,67 @@ const sendCommand = async () => {
       timestamp: new Date()
     })
   } finally {
-    commandExecuting.value = false
-    scrollToBottom()
-    await nextTick()
-    focusInput()
+    // 非流式命令执行完毕，清除状态
+    if (!isStreamingCommand.value) {
+      commandExecuting.value = false
+      await nextTick()
+      scrollToBottom()
+      focusInput()
+    }
   }
 }
 
-// 处理键盘事件
+// 处理容器级别的键盘事件（用于中断流式命令）
+const handleContainerKeydown = (event) => {
+  // 处理 Ctrl+C 或 Cmd+C 中断流式命令
+  if ((event.ctrlKey || event.metaKey) && event.key === 'c' && isStreamingCommand.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    interruptStreaming()
+    return
+  }
+  
+  // 如果不是流式命令状态，让输入框处理其他键盘事件
+  if (!isStreamingCommand.value && commandInputRef.value) {
+    commandInputRef.value.focus()
+  }
+}
+
+// 中断流式命令
+const interruptStreaming = async () => {
+  if (!isStreamingCommand.value) return
+  
+  addTerminalLine({
+    type: 'system',
+    content: '^C',
+    timestamp: new Date()
+  })
+  
+  // 通知后端中断
+  if (window.electronAPI && connectionId.value) {
+    try {
+      await window.electronAPI.ssh.interrupt(connectionId.value)
+    } catch (error) {
+      console.error('中断命令失败:', error)
+    }
+  }
+  
+  // 重置状态
+  isStreamingCommand.value = false
+  commandExecuting.value = false
+  currentCommand.value = ''
+  streamBuffer.value = '' // 清空流式数据缓冲区
+  
+  await nextTick()
+  focusInput()
+}
+
+// 处理输入框键盘事件
 const handleKeydown = (event) => {
-  if (event.key === 'ArrowUp') {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    sendCommand()
+  } else if (event.key === 'ArrowUp') {
     event.preventDefault()
     if (historyIndex.value > 0) {
       historyIndex.value--
@@ -361,7 +498,75 @@ const handleKeydown = (event) => {
       historyIndex.value = commandHistory.value.length
       currentCommand.value = ''
     }
+  } else if (event.key === 'Tab') {
+    event.preventDefault()
+    // 简单的命令补全
+    const commonCommands = ['ls', 'cd', 'pwd', 'cat', 'grep', 'find', 'ps', 'top', 'df', 'free', 'vim', 'nano', 'clear']
+    const currentCmd = currentCommand.value.trim()
+    if (currentCmd) {
+      const matches = commonCommands.filter(cmd => cmd.startsWith(currentCmd))
+      if (matches.length === 1) {
+        currentCommand.value = matches[0] + ' '
+      } else if (matches.length > 1) {
+        // 显示所有匹配项
+        addTerminalLine({
+          type: 'system',
+          content: matches.join('  '),
+          timestamp: new Date()
+        })
+      }
+    }
+  } else if (event.key === 'l' && (event.ctrlKey || event.metaKey)) {
+    // Ctrl+L 清屏
+    event.preventDefault()
+    clearTerminal()
   }
+}
+
+// 处理实时流式数据
+const handleStreamData = (data) => {
+  if (data.connectionId !== connectionId.value) return
+  
+  const lineType = data.type === 'stdout' ? 'output' : 'error'
+  
+  // 将新数据添加到缓冲区
+  streamBuffer.value += data.data
+  
+  // 按行分割数据
+  const lines = streamBuffer.value.split('\n')
+  
+  // 最后一个元素可能是不完整的行，保留在缓冲区
+  streamBuffer.value = lines.pop() || ''
+  
+  // 添加完整的行到终端
+  lines.forEach(line => {
+    if (line || line === '') { // 保留空行
+      addTerminalLine({
+        type: lineType,
+        content: line,
+        timestamp: new Date()
+      })
+    }
+  })
+}
+
+// 处理流式结束
+const handleStreamEnd = (data) => {
+  if (data.connectionId !== connectionId.value) return
+  
+  // 如果缓冲区还有剩余数据，添加到终端
+  if (streamBuffer.value) {
+    addTerminalLine({
+      type: 'output',
+      content: streamBuffer.value,
+      timestamp: new Date()
+    })
+    streamBuffer.value = ''
+  }
+  
+  isStreamingCommand.value = false
+  commandExecuting.value = false
+  focusInput()
 }
 
 // 组件挂载时自动连接
@@ -371,6 +576,12 @@ onMounted(() => {
     content: '🚀 终端已启动',
     timestamp: new Date()
   })
+  
+  // 监听实时流式数据
+  if (window.electronAPI && window.electronAPI.ssh) {
+    window.electronAPI.ssh.onStreamData(handleStreamData)
+    window.electronAPI.ssh.onStreamEnd(handleStreamEnd)
+  }
   
   // 自动连接
   if (props.tabMode) {
@@ -383,6 +594,12 @@ onMounted(() => {
 onUnmounted(() => {
   if (isConnected.value) {
     disconnectSSH()
+  }
+  
+  // 移除监听器
+  if (window.electronAPI && window.electronAPI.ssh) {
+    window.electronAPI.ssh.removeStreamDataListener()
+    window.electronAPI.ssh.removeStreamEndListener()
   }
 })
 
@@ -417,7 +634,7 @@ defineExpose({
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 20px;
+  padding: 6px 12px;
   background: linear-gradient(135deg, rgba(13, 17, 23, 0.95) 0%, rgba(22, 27, 34, 0.95) 100%);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(48, 54, 61, 0.5);
@@ -428,17 +645,17 @@ defineExpose({
 .toolbar-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .connection-info {
-  font-size: 12px;
+  font-size: 11px;
   color: #858585;
 }
 
 .toolbar-right {
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
 .terminal-container {
@@ -446,17 +663,18 @@ defineExpose({
   background: #0d1117;
   color: #e6edf3;
   font-family: 'Cascadia Code', 'JetBrains Mono', 'Fira Code', 'Consolas', 'Monaco', monospace;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 400;
-  line-height: 1.7;
+  line-height: 1.5;
   letter-spacing: 0.1px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  padding: 20px 24px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  cursor: text;
+  outline: none; /* 移除焦点边框 */
 }
 
 .terminal-container.connected {
@@ -467,11 +685,11 @@ defineExpose({
 .terminal-output {
   flex: 1;
   overflow-y: auto;
-  margin-bottom: 12px;
+  padding: 12px 16px;
 }
 
 .terminal-output::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
 }
 
 .terminal-output::-webkit-scrollbar-track {
@@ -480,21 +698,23 @@ defineExpose({
 
 .terminal-output::-webkit-scrollbar-thumb {
   background: #424242;
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 .terminal-welcome {
   text-align: center;
-  padding: 40px 20px;
+  padding: 30px 15px;
   color: #666;
+  line-height: 1.8;
 }
 
 .terminal-welcome p {
-  margin: 8px 0;
+  margin: 6px 0;
+  font-size: 11px;
 }
 
 .terminal-line {
-  margin-bottom: 6px;
+  margin-bottom: 3px;
   word-wrap: break-word;
   white-space: pre-wrap;
   animation: fadeIn 0.2s ease-in;
@@ -514,40 +734,34 @@ defineExpose({
 .terminal-line.error {
   color: #ff7b72;
   background: rgba(255, 123, 114, 0.05);
-  padding: 2px 8px;
-  border-radius: 4px;
-  border-left: 3px solid rgba(255, 123, 114, 0.3);
-  margin-left: -8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border-left: 2px solid rgba(255, 123, 114, 0.3);
+  margin-left: -6px;
 }
 
 .terminal-line.system {
   color: #79c0ff;
   background: rgba(121, 192, 255, 0.05);
-  padding: 2px 8px;
-  border-radius: 4px;
-  border-left: 3px solid rgba(121, 192, 255, 0.3);
-  margin-left: -8px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border-left: 2px solid rgba(121, 192, 255, 0.3);
+  margin-left: -6px;
 }
 
 .command-prefix {
   color: #7ee787;
   font-weight: 600;
-  margin-right: 6px;
+  margin-right: 4px;
   text-shadow: 0 0 2px rgba(126, 231, 135, 0.3);
 }
 
 .terminal-input-line {
   display: flex;
   align-items: center;
-  gap: 8px;
-  border-top: 1px solid rgba(48, 54, 61, 0.5);
-  padding-top: 16px;
+  gap: 4px;
+  margin-bottom: 3px;
   flex-shrink: 0;
-  background: rgba(13, 17, 23, 0.5);
-  margin: 0 -24px -20px -24px;
-  padding-left: 24px;
-  padding-right: 24px;
-  padding-bottom: 20px;
 }
 
 .prompt {
@@ -555,34 +769,70 @@ defineExpose({
   font-weight: 600;
   white-space: nowrap;
   text-shadow: 0 0 2px rgba(126, 231, 135, 0.3);
-  font-size: 13.5px;
+  font-size: 12px;
+  margin-right: 4px;
 }
 
 .command-input {
   flex: 1;
-  background: rgba(48, 54, 61, 0.3);
-  border: 1px solid rgba(48, 54, 61, 0.5);
-  border-radius: 6px;
+  background: transparent;
+  border: none;
   color: #e6edf3;
   font-family: inherit;
   font-size: inherit;
+  line-height: inherit;
   outline: none;
-  padding: 8px 12px;
+  padding: 0;
   transition: all 0.3s;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-.command-input:focus {
-  background: rgba(48, 54, 61, 0.5);
-  border-color: rgba(126, 231, 135, 0.4);
-  box-shadow: 0 0 0 2px rgba(126, 231, 135, 0.1);
+  caret-color: #7ee787;
+  caret-shape: bar;
 }
 
 .command-input:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  background: rgba(48, 54, 61, 0.2);
+  opacity: 0.7;
+  cursor: wait;
+}
+
+/* 流式命令提示 */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  margin-bottom: 3px;
+  padding: 8px 12px;
+  background: rgba(121, 192, 255, 0.08);
+  border-left: 3px solid rgba(121, 192, 255, 0.4);
+  border-radius: 4px;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.streaming-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: #79c0ff;
+  font-weight: 500;
+}
+
+.streaming-dot {
+  width: 6px;
+  height: 6px;
+  background: #79c0ff;
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
 }
 
 @keyframes fadeIn {

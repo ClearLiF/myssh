@@ -11,7 +11,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     disconnect: (connectionId) => ipcRenderer.invoke('ssh:disconnect', connectionId),
     
     // 执行 SSH 命令
-    execute: (connectionId, command) => ipcRenderer.invoke('ssh:execute', { connectionId, command })
+    execute: (connectionId, command) => ipcRenderer.invoke('ssh:execute', { connectionId, command }),
+    
+    // 中断流式命令
+    interrupt: (connectionId) => ipcRenderer.invoke('ssh:interrupt', connectionId),
+    
+    // 监听流式数据
+    onStreamData: (callback) => {
+      ipcRenderer.on('ssh:stream-data', (event, data) => callback(data))
+    },
+    
+    // 监听流式结束
+    onStreamEnd: (callback) => {
+      ipcRenderer.on('ssh:stream-end', (event, data) => callback(data))
+    },
+    
+    // 移除监听器
+    removeStreamDataListener: () => {
+      ipcRenderer.removeAllListeners('ssh:stream-data')
+    },
+    
+    removeStreamEndListener: () => {
+      ipcRenderer.removeAllListeners('ssh:stream-end')
+    }
   },
   
   // SFTP 相关 API

@@ -153,11 +153,11 @@ const handleTabRemove = (targetName) => {
   border: none;
   background: transparent;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   transition: all 0.3s;
-  padding: 0 20px;
-  height: 40px;
-  line-height: 40px;
+  padding: 0 16px;
+  height: 34px;
+  line-height: 34px;
 }
 
 .connection-tabs :deep(.el-tabs__item:hover) {

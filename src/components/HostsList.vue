@@ -50,7 +50,7 @@
           @click.stop="selectHost(host, index)"
         >
           <div class="host-icon">
-            <el-icon :size="20" :color="getHostColor(host)">
+            <el-icon :size="16" :color="getHostColor(host)">
               <Monitor />
             </el-icon>
           </div>
@@ -356,7 +356,7 @@ onMounted(() => {
 }
 
 .hosts-header {
-  padding: 16px 20px;
+  padding: 10px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -368,23 +368,23 @@ onMounted(() => {
 .header-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 12px;
   color: #ffffff;
   letter-spacing: 0.5px;
   text-transform: uppercase;
 }
 
 .header-title .el-icon {
-  font-size: 18px;
+  font-size: 16px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .search-box {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid rgba(60, 60, 60, 0.3);
   background: rgba(30, 30, 30, 0.5);
 }
@@ -402,20 +402,20 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 12px;
+  padding: 8px;
 }
 
 .empty-hosts {
-  padding: 60px 20px;
+  padding: 40px 15px;
   text-align: center;
 }
 
 .host-item {
   display: flex;
   align-items: center;
-  padding: 14px 16px;
-  margin-bottom: 8px;
-  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   background: linear-gradient(135deg, rgba(60, 60, 60, 0.15) 0%, rgba(45, 45, 48, 0.15) 100%);
@@ -454,13 +454,13 @@ onMounted(() => {
 
 .host-icon {
   flex-shrink: 0;
-  margin-right: 14px;
-  width: 36px;
-  height: 36px;
+  margin-right: 10px;
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
+  border-radius: 6px;
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
   transition: all 0.3s;
 }
@@ -470,20 +470,24 @@ onMounted(() => {
   transform: scale(1.05);
 }
 
+.host-icon .el-icon {
+  font-size: 16px !important;
+}
+
 .host-info {
   flex: 1;
   min-width: 0;
 }
 
 .host-name {
-  font-size: 13.5px;
+  font-size: 12px;
   font-weight: 600;
   color: #f0f0f0;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.2px;
   transition: color 0.3s;
 }
 
@@ -493,8 +497,8 @@ onMounted(() => {
 
 .host-details {
   display: flex;
-  gap: 10px;
-  font-size: 11.5px;
+  gap: 6px;
+  font-size: 10px;
   color: #999;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
 }
@@ -504,9 +508,9 @@ onMounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 8px;
+  padding: 2px 6px;
   background: rgba(255, 255, 255, 0.03);
-  border-radius: 4px;
+  border-radius: 3px;
   transition: all 0.3s;
 }
 
