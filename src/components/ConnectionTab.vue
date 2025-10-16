@@ -151,6 +151,9 @@ onUnmounted(() => {
   overflow: hidden;
   background: #0d1117;
   border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .resize-handle {
@@ -161,11 +164,12 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   position: relative;
-  z-index: 10;
+  z-index: 1;
   user-select: none;
   transition: all 0.2s;
   border-top: 1px solid rgba(48, 54, 61, 0.3);
   border-bottom: 1px solid rgba(48, 54, 61, 0.3);
+  flex-shrink: 0;
 }
 
 .resize-handle:hover {
@@ -191,6 +195,9 @@ onUnmounted(() => {
   padding: 0;
   overflow: hidden;
   background: linear-gradient(180deg, #161b22 0%, #1a1f26 100%);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>
 

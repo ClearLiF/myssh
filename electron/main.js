@@ -180,6 +180,17 @@ ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
       throw new Error('SSH 连接不存在')
     }
     
+    // 检查是否是交互式命令（需要 PTY 支持）
+    const interactiveCommands = ['vim', 'vi', 'nano', 'emacs', 'top', 'htop', 'less', 'more', 'man']
+    const cmdName = String(command).trim().split(/\s+/)[0]
+    if (interactiveCommands.includes(cmdName)) {
+      return {
+        success: false,
+        message: `不支持交互式命令 '${cmdName}'`,
+        error: '当前终端不支持需要 PTY 的交互式命令'
+      }
+    }
+    
     // 如果是 cd 命令，需要保存工作目录状态
     let actualCommand = String(command)
     
@@ -483,6 +494,85 @@ ipcMain.handle('dialog:openDirectory', async (event) => {
       return { success: false, message: '用户取消了目录选择' }
     }
   } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 创建 PTY Shell（支持交互式命令）
+let ptyShells = new Map() // 保存 PTY shell 会话
+
+ipcMain.handle('ssh:create-pty', async (event, { connectionId, cols, rows }) => {
+  try {
+    const ssh = sshConnections.get(String(connectionId))
+    if (!ssh) {
+      throw new Error('SSH 连接不存在')
+    }
+
+    return new Promise((resolve, reject) => {
+      ssh.connection.shell({
+        cols: cols || 80,
+        rows: rows || 24,
+        term: 'xterm-256color'
+      }, (err, stream) => {
+        if (err) {
+          reject(err)
+          return
+        }
+
+        // 保存 shell 流
+        ptyShells.set(String(connectionId), stream)
+
+        // 监听数据输出
+        stream.on('data', (data) => {
+          event.sender.send('ssh:pty-data', {
+            connectionId,
+            data: data.toString('utf-8')
+          })
+        })
+
+        // 监听关闭事件
+        stream.on('close', () => {
+          event.sender.send('ssh:pty-close', { connectionId })
+          ptyShells.delete(String(connectionId))
+        })
+
+        resolve({ success: true, message: 'PTY shell 已创建' })
+      })
+    })
+  } catch (error) {
+    console.error('创建 PTY shell 失败:', error)
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 向 PTY 发送数据
+ipcMain.handle('ssh:pty-write', async (event, { connectionId, data }) => {
+  try {
+    const stream = ptyShells.get(String(connectionId))
+    if (!stream) {
+      throw new Error('PTY shell 不存在')
+    }
+
+    stream.write(data)
+    return { success: true }
+  } catch (error) {
+    console.error('写入 PTY 失败:', error)
+    return { success: false, message: error.message }
+  }
+})
+
+// IPC 处理器 - 调整 PTY 大小
+ipcMain.handle('ssh:pty-resize', async (event, { connectionId, cols, rows }) => {
+  try {
+    const stream = ptyShells.get(String(connectionId))
+    if (!stream) {
+      throw new Error('PTY shell 不存在')
+    }
+
+    stream.setWindow(rows, cols)
+    return { success: true }
+  } catch (error) {
+    console.error('调整 PTY 大小失败:', error)
     return { success: false, message: error.message }
   }
 })

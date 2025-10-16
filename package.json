@@ -12,7 +12,12 @@
     "preview": "vite preview",
     "start": "electron ."
   },
-  "keywords": ["ssh", "electron", "vue", "element-plus"],
+  "keywords": [
+    "ssh",
+    "electron",
+    "vue",
+    "element-plus"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "devDependencies": {
@@ -24,10 +29,13 @@
     "wait-on": "^7.0.1"
   },
   "dependencies": {
-    "vue": "^3.3.4",
+    "@element-plus/icons-vue": "^2.1.0",
     "element-plus": "^2.3.8",
     "node-ssh": "^13.1.0",
-    "@element-plus/icons-vue": "^2.1.0"
+    "vue": "^3.3.4",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0",
+    "xterm-addon-web-links": "^0.9.0"
   },
   "build": {
     "appId": "com.example.myssh",

@@ -33,6 +33,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
     
     removeStreamEndListener: () => {
       ipcRenderer.removeAllListeners('ssh:stream-end')
+    },
+    
+    // PTY 相关 API
+    createPty: (connectionId, cols, rows) => ipcRenderer.invoke('ssh:create-pty', { connectionId, cols, rows }),
+    
+    ptyWrite: (connectionId, data) => ipcRenderer.invoke('ssh:pty-write', { connectionId, data }),
+    
+    ptyResize: (connectionId, cols, rows) => ipcRenderer.invoke('ssh:pty-resize', { connectionId, cols, rows }),
+    
+    onPtyData: (callback) => {
+      ipcRenderer.on('ssh:pty-data', (event, data) => callback(data))
+    },
+    
+    onPtyClose: (callback) => {
+      ipcRenderer.on('ssh:pty-close', (event, data) => callback(data))
+    },
+    
+    removePtyDataListener: () => {
+      ipcRenderer.removeAllListeners('ssh:pty-data')
+    },
+    
+    removePtyCloseListener: () => {
+      ipcRenderer.removeAllListeners('ssh:pty-close')
     }
   },
   
