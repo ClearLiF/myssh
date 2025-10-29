@@ -12,12 +12,12 @@
           连接中...
         </el-tag>
         <el-tag v-else type="info" size="small">未连接</el-tag>
-
+        
         <span v-if="isConnected" class="connection-info">
           {{ connection.username }}@{{ connection.host }}:{{ connection.port }}
         </span>
       </div>
-
+      
       <div class="toolbar-right">
         <el-button
           v-if="!isConnected"
@@ -36,57 +36,25 @@
         >
           断开
         </el-button>
-        <el-button
+        <el-button 
           v-if="isConnected"
-          size="small"
+          size="small" 
           @click="openFileManager"
         >
           📁 文件
         </el-button>
-        <el-button
-          v-if="isConnected"
-          size="small"
-          @click="openProcessMonitor"
-        >
-          📊 进程
-        </el-button>
-        <el-button
-          v-if="isConnected"
-          size="small"
-          @click="openDockerManager"
-        >
-          🐳 Docker
-        </el-button>
-        <el-button
-          v-if="isConnected"
-          size="small"
-          @click="openSystemctlManager"
-        >
-          ⚙️ Systemctl
-        </el-button>
         <el-button size="small" @click="clearTerminal" :disabled="!isConnected">
           清空
         </el-button>
-
-        <!-- 搜索和高亮 -->
-        <el-input
-          v-model="searchText"
-          size="small"
-          placeholder="🔍 搜索..."
-          style="width: 150px; margin: 0 8px"
-          clearable
-          @input="highlightSearch"
-          @keyup.enter="highlightSearch"
-        />
-
+        
         <!-- 选择预览区域 -->
         <div v-if="currentSelection" class="selection-preview">
           <span class="selection-label">已选:</span>
           <span class="selection-text">{{ truncatedSelection }}</span>
         </div>
-
-        <el-button
-          size="small"
+        
+        <el-button 
+          size="small" 
           @click="copyTerminalSelection"
           :disabled="!isConnected"
           title="复制选中的文本 (Ctrl+Shift+C)"
@@ -96,45 +64,10 @@
       </div>
     </div>
 
-    <!-- 终端主体区域 -->
-    <div class="terminal-body">
-      <!-- 左侧面板容器 -->
-      <div v-if="isConnected && connectionId" class="left-panel">
-        <el-tabs v-model="activeLeftTab" class="left-panel-tabs">
-          <!-- 系统监控 Tab -->
-          <el-tab-pane name="monitor">
-            <template #label>
-              <span class="tab-label">
-                <el-icon><Monitor /></el-icon>
-                <span>监控</span>
-              </span>
-            </template>
-            <CompactMonitor
-              :connection-id="connectionId"
-              @open-network-monitor="handleOpenNetworkMonitor"
-            />
-          </el-tab-pane>
-
-          <!-- 端口转发 Tab -->
-          <el-tab-pane name="forward">
-            <template #label>
-              <span class="tab-label">
-                <el-icon><Connection /></el-icon>
-                <span>转发</span>
-              </span>
-            </template>
-            <PortForwardPanel
-              :connection-id="connectionId"
-            />
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-
-      <!-- xterm.js 终端容器 -->
-      <div class="xterm-container" ref="xtermContainer">
-        <!-- 自定义选择高亮层 -->
-        <div class="selection-overlay" ref="selectionOverlay"></div>
-      </div>
+    <!-- xterm.js 终端容器 -->
+    <div class="xterm-container" ref="xtermContainer">
+      <!-- 自定义选择高亮层 -->
+      <div class="selection-overlay" ref="selectionOverlay"></div>
     </div>
   </div>
 </template>
@@ -142,13 +75,10 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { SuccessFilled, Loading, Monitor, Connection } from '@element-plus/icons-vue'
-import CompactMonitor from './CompactMonitor.vue'
-import PortForwardPanel from './PortForwardPanel.vue'
+import { SuccessFilled, Loading } from '@element-plus/icons-vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 
 const props = defineProps({
@@ -162,7 +92,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['connected', 'disconnected', 'open-sftp', 'open-process-monitor', 'open-network-monitor', 'open-docker-manager', 'open-systemctl-manager'])
+const emit = defineEmits(['connected', 'disconnected'])
 
 // 状态管理
 const connecting = ref(false)
@@ -170,7 +100,6 @@ const isConnected = ref(false)
 const commandExecuting = ref(false)
 const isStreamingCommand = ref(false)
 const usePtyMode = ref(true) // 默认使用 PTY 模式
-const activeLeftTab = ref('monitor') // 左侧面板当前激活的Tab
 
 // PTY 相关
 const xtermContainer = ref(null)
@@ -188,8 +117,6 @@ const historyIndex = ref(-1)
 // 选择预览相关
 const currentSelection = ref('')
 const selectionOverlay = ref(null)
-const searchText = ref('')
-let searchAddon = null
 const truncatedSelection = computed(() => {
   if (currentSelection.value.length > 50) {
     return currentSelection.value.substring(0, 50) + '...'
@@ -210,9 +137,9 @@ const streamBuffer = ref('')
 
 // 获取 xterm 主题配置
 const getXtermTheme = () => {
-  const isDark = !document.documentElement.getAttribute('data-theme') ||
+  const isDark = !document.documentElement.getAttribute('data-theme') || 
                  document.documentElement.getAttribute('data-theme') === 'dark'
-
+  
   if (isDark) {
     // 暗色主题 - Dracula Pro
     return {
@@ -286,40 +213,6 @@ const clearTerminal = () => {
   }
 }
 
-// 搜索和高亮文本
-const highlightSearch = () => {
-  if (!searchAddon || !terminal) return
-
-  if (!searchText.value) {
-    searchAddon.clearDecorations()
-    // 关闭之前的搜索提示
-    ElMessage.closeAll()
-    return
-  }
-
-  try {
-    // 搜索文本并高亮
-    const regex = new RegExp(searchText.value, 'gi')
-    searchAddon.findNext(searchText.value)
-
-    // 关闭之前的消息，避免频繁搜索时堆叠
-    ElMessage.closeAll()
-    ElMessage.info({
-      message: `已高亮搜索: "${searchText.value}"`,
-      type: 'info',
-      duration: 1500,
-      showClose: false
-    })
-  } catch (err) {
-    ElMessage.closeAll()
-    ElMessage.error({
-      message: '搜索失败: 无效的搜索内容',
-      type: 'error',
-      duration: 1500
-    })
-  }
-}
-
 // 滚动到底部
 const scrollToBottom = async () => {
   await nextTick()
@@ -336,7 +229,7 @@ const handleContainerClick = () => {
     // 如果有选中的文字，不执行聚焦操作，让用户可以复制
     return
   }
-
+  
   // 没有选中文字时，正常聚焦
   focusInput()
 }
@@ -359,14 +252,14 @@ const focusInput = () => {
 // 格式化输出
 const formatOutput = (content) => {
   if (!content) return ''
-
+  
   const escaped = content
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-
+  
   return escaped.replace(/\n/g, '<br>')
 }
 
@@ -389,20 +282,19 @@ const connectSSH = async () => {
         username: props.connection.username,
         authType: props.connection.authType,
         password: props.connection.password,
-        privateKeyPath: props.connection.privateKeyPath,
-        tunnels: props.connection.tunnels || []  // 传递端口转发配置
+        privateKeyPath: props.connection.privateKeyPath
       }))
-
+      
       const result = await window.electronAPI.ssh.connect(plainConfig)
       if (result.success) {
         connectionId.value = result.connectionId
         isConnected.value = true
-
+        
         console.log('SSH 连接成功，connectionId:', connectionId.value)
-
+        
         // 通知父组件连接成功
         emit('connected', connectionId.value)
-
+        
         addTerminalLine({
           type: 'system',
           content: `✅ 已连接到 ${props.connection.host}`,
@@ -413,50 +305,11 @@ const connectSSH = async () => {
           content: `连接 ID: ${connectionId.value}`,
           timestamp: new Date()
         })
-
-        // 显示端口转发建立结果
-        if (result.tunnels && result.tunnels.length > 0) {
-          const successCount = result.tunnels.filter(t => t.success).length
-          const failCount = result.tunnels.filter(t => !t.success).length
-
-          if (successCount > 0) {
-            addTerminalLine({
-              type: 'system',
-              content: `🔗 已建立 ${successCount} 个端口转发`,
-              timestamp: new Date()
-            })
-          }
-
-          if (failCount > 0) {
-            addTerminalLine({
-              type: 'error',
-              content: `⚠️  ${failCount} 个端口转发建立失败`,
-              timestamp: new Date()
-            })
-          }
-
-          // 显示每个端口转发的详细状态
-          result.tunnels.forEach(tunnel => {
-            if (tunnel.success) {
-              addTerminalLine({
-                type: 'system',
-                content: `  ✓ ${tunnel.name}`,
-                timestamp: new Date()
-              })
-            } else {
-              addTerminalLine({
-                type: 'error',
-                content: `  ✗ ${tunnel.name}: ${tunnel.error || '未知错误'}`,
-                timestamp: new Date()
-              })
-            }
-          })
-        }
-
+        
         currentPrompt.value = `${props.connection.username}@${props.connection.host}:~$ `
-
+        
         ElMessage.success('SSH 连接成功！')
-
+        
         // 始终初始化 xterm PTY 模式
         await initializePty()
       } else {
@@ -467,13 +320,13 @@ const connectSSH = async () => {
       await new Promise(resolve => setTimeout(resolve, 1000))
       isConnected.value = true
       currentPrompt.value = `${props.connection.username}@${props.connection.host}:~$ `
-
+      
       addTerminalLine({
         type: 'system',
         content: `🔧 模拟连接到 ${props.connection.host}`,
         timestamp: new Date()
       })
-
+      
       ElMessage.success('SSH 连接成功！（模拟模式）')
       await nextTick()
       focusInput()
@@ -497,23 +350,12 @@ const initializePty = async () => {
   }
 
   try {
-    // 读取终端字体大小设置
-    let terminalFontSize = 14 // 默认值
-    try {
-      const fontSizeResult = await window.electronAPI.settings.getTerminalFontSize()
-      if (fontSizeResult.success) {
-        terminalFontSize = fontSizeResult.fontSize
-      }
-    } catch (error) {
-      console.warn('无法读取终端字体大小设置，使用默认值:', error)
-    }
-
     // 创建 xterm 实例
     terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
       cursorWidth: 2,
-      fontSize: terminalFontSize,
+      fontSize: 15,
       fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Menlo, Monaco, "Courier New", monospace',
       fontWeight: '400',
       fontWeightBold: '700',
@@ -531,9 +373,7 @@ const initializePty = async () => {
       // 新版 xterm 5.5.0 的选择和鼠标配置
       enableBold: true,
       screenKeys: false,
-      rightClickSelectsWord: false,  // 禁用右键选词，避免干扰文本选择
-      // 启用文本选择模式
-      selectionMode: 'normal'
+      rightClickSelectsWord: true
       // 移除了过时的 documentOverride 和 disableStdin 参数
     })
 
@@ -541,8 +381,6 @@ const initializePty = async () => {
     fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.loadAddon(new WebLinksAddon())
-    searchAddon = new SearchAddon()
-    terminal.loadAddon(searchAddon)
 
     // 挂载到 DOM
     terminal.open(xtermContainer.value)
@@ -557,52 +395,32 @@ const initializePty = async () => {
       const style = document.createElement('style')
       style.id = styleId
       style.textContent = `
-        /* 启用所有 xterm 元素的文本选择 */
         .xterm, .xterm *, .xterm-row, .xterm-screen, .xterm-rows {
           user-select: text !important;
           -webkit-user-select: text !important;
           -moz-user-select: text !important;
-          -ms-user-select: text !important;
         }
         .xterm-viewport {
           user-select: text !important;
-          -webkit-user-select: text !important;
-          -moz-user-select: text !important;
         }
-        /* 禁用长按菜单，防止干扰选择 */
-        .xterm {
-          -webkit-touch-callout: none !important;
-        }
-        /* 增强选择样式的可见性 - 使用高对比度 */
+        /* 增强选择样式的可见性 */
         .xterm-selection {
-          background-color: rgba(100, 200, 255, 0.9) !important;
-          color: #ffffff !important;
-          border-radius: 2px;
-          opacity: 1 !important;
-        }
-        /* 确保光标不会阻止选择 */
-        .xterm-cursor {
-          pointer-events: none !important;
-        }
-        /* 禁用 xterm 的默认选择样式覆盖 */
-        .xterm-selection-layer {
-          z-index: 100 !important;
+          background-color: rgba(100, 200, 255, 0.6) !important;
+          color: #000 !important;
         }
       `
       document.head.appendChild(style)
     }
 
-    // 关键：启用 xterm 的文本选择功能
+    // 关键：禁用 xterm 的鼠标处理以启用文本选择
     const xtermElement = xtermContainer.value?.querySelector('.xterm')
     if (xtermElement) {
       // 直接设置样式启用选择
       xtermElement.style.userSelect = 'text'
       xtermElement.style.WebkitUserSelect = 'text'
       xtermElement.style.MozUserSelect = 'text'
-      // 保持 pointer-events 为 auto，允许鼠标交互
+      // 很重要：禁用 pointer-events 可能会阻止选择
       xtermElement.style.pointerEvents = 'auto'
-      // 禁用 -webkit-touch-callout，防止长按菜单干扰选择
-      xtermElement.style.WebkitTouchCallout = 'none'
     }
 
     // 获取 xterm-screen 元素并启用选择
@@ -612,15 +430,6 @@ const initializePty = async () => {
       xtermScreen.style.WebkitUserSelect = 'text'
       xtermScreen.style.MozUserSelect = 'text'
       xtermScreen.style.pointerEvents = 'auto'
-      xtermScreen.style.WebkitTouchCallout = 'none'
-    }
-
-    // 获取 xterm-viewport 并启用选择
-    const xtermViewport = xtermContainer.value?.querySelector('.xterm-viewport')
-    if (xtermViewport) {
-      xtermViewport.style.userSelect = 'text'
-      xtermViewport.style.WebkitUserSelect = 'text'
-      xtermViewport.style.MozUserSelect = 'text'
     }
 
     // 监听窗口大小变化
@@ -655,13 +464,11 @@ const initializePty = async () => {
     terminal.attachCustomKeyEventHandler((event) => {
       // Mac: Cmd+C, Windows/Linux: Ctrl+C
       const isCopy = (event.ctrlKey || event.metaKey) && event.code === 'KeyC' && event.shiftKey
-
+      
       if (isCopy) {
         const selected = terminal.getSelection()
         currentSelection.value = selected // 更新预览
         if (selected) {
-          // 关闭之前的消息，避免重复按复制键时堆叠
-          ElMessage.closeAll()
           navigator.clipboard.writeText(selected).then(() => {
             ElMessage.success({
               message: `已复制 ${selected.length} 个字符到剪贴板`,
@@ -683,44 +490,28 @@ const initializePty = async () => {
       return true
     })
 
-    // 禁用 xterm 的鼠标事件处理，以允许原生文本选择
-    terminal.attachCustomKeyEventHandler((event) => {
-      // 允许所有鼠标事件通过，不被 xterm 拦截
-      return true
-    })
-
     // 监听鼠标选择变化 - 在 mouseup 时更新预览
-    const handleMouseUp = () => {
-      // 延迟一小段时间，确保选择已完成
-      setTimeout(() => {
-        const selected = terminal.getSelection()
-        if (selected && selected.length > 0) {
-          currentSelection.value = selected
-          // 渲染高亮
-          renderSelectionHighlight()
-          // 只在选择较长文本时显示提示，避免频繁弹出
-          if (selected.length > 10) {
-            // 关闭之前的消息，避免堆叠
-            ElMessage.closeAll()
-            ElMessage.info({
-              message: `已选择 ${selected.length} 个字符，按 Ctrl+Shift+C 复制`,
-              type: 'info',
-              duration: 1500,
-              showClose: false
-            })
-          }
-        } else {
-          currentSelection.value = ''
-          // 清空高亮
-          if (selectionOverlay.value) {
-            selectionOverlay.value.innerHTML = ''
-          }
+    xtermElement?.addEventListener('mouseup', () => {
+      const selected = terminal.getSelection()
+      if (selected) {
+        currentSelection.value = selected
+        // 渲染高亮
+        renderSelectionHighlight()
+        // 显示选择提示
+        ElMessage.info({
+          message: `已选择 ${selected.length} 个字符，按 Ctrl+Shift+C 复制`,
+          type: 'info',
+          duration: 1500,
+          showClose: false
+        })
+      } else {
+        currentSelection.value = ''
+        // 清空高亮
+        if (selectionOverlay.value) {
+          selectionOverlay.value.innerHTML = ''
         }
-      }, 50)
-    }
-
-    xtermElement?.addEventListener('mouseup', handleMouseUp)
-    xtermElement?.addEventListener('touchend', handleMouseUp)
+      }
+    })
 
     // 启用选择支持：使用 MutationObserver 监听新的行
     const enableSelectionOnRows = () => {
@@ -737,13 +528,13 @@ const initializePty = async () => {
     // 渲染选择高亮 - 显示蓝色高亮框
     const renderSelectionHighlight = () => {
       if (!selectionOverlay.value) return
-
+      
       const selected = terminal.getSelection()
       if (!selected || selected.length === 0) {
         selectionOverlay.value.innerHTML = ''
         return
       }
-
+      
       // 创建高亮效果 - 使用 xterm 的选择 API 获取选择区域
       const selectionDiv = document.createElement('div')
       selectionDiv.className = 'selection-highlight'
@@ -812,19 +603,19 @@ const disconnectSSH = async () => {
       terminal = null
     }
     fitAddon = null
-
+    
     if (window.electronAPI) {
       window.electronAPI.ssh.removePtyDataListener()
       window.electronAPI.ssh.removePtyCloseListener()
     }
-
+    
     if (window.electronAPI && connectionId.value) {
       await window.electronAPI.ssh.disconnect(connectionId.value)
     }
-
+    
     isConnected.value = false
     connectionId.value = null
-
+    
     ElMessage.info('SSH 连接已断开')
   } catch (error) {
     ElMessage.error('断开连接时发生错误')
@@ -834,10 +625,10 @@ const disconnectSSH = async () => {
 // 发送命令
 const sendCommand = async () => {
   const command = currentCommand.value.trim()
-
+  
   // 如果未连接或正在执行命令，直接返回
   if (!isConnected.value || commandExecuting.value) return
-
+  
   // 如果是空命令，只添加一个空行
   if (!command) {
     addTerminalLine({
@@ -853,7 +644,7 @@ const sendCommand = async () => {
     focusInput()
     return
   }
-
+  
   // 检查是否是交互式命令（需要 PTY 支持）
   const interactiveCommands = ['vim', 'vi', 'nano', 'emacs', 'top', 'htop', 'less', 'more', 'man']
   const cmdName = command.split(/\s+/)[0]
@@ -883,12 +674,12 @@ const sendCommand = async () => {
     focusInput()
     return
   }
-
+  
   // 检查是否是流式命令（提前判断）
-  const isStreaming = command.includes(' -f') ||
-                      command.includes('tail -f') ||
+  const isStreaming = command.includes(' -f') || 
+                      command.includes('tail -f') || 
                       command.includes('docker logs')
-
+  
   // 如果是流式命令，立即标记状态并聚焦容器
   if (isStreaming) {
     isStreamingCommand.value = true
@@ -898,10 +689,10 @@ const sendCommand = async () => {
       terminalContainerRef.value.focus()
     }
   }
-
+  
   // 标记正在执行
   commandExecuting.value = true
-
+  
   // 先将命令添加到历史
   if (command !== commandHistory.value[commandHistory.value.length - 1]) {
     commandHistory.value.push(command)
@@ -910,7 +701,7 @@ const sendCommand = async () => {
     }
   }
   historyIndex.value = commandHistory.value.length
-
+  
   // 将命令行添加到输出历史
   addTerminalLine({
     type: 'command',
@@ -918,31 +709,31 @@ const sendCommand = async () => {
     content: command,
     timestamp: new Date()
   })
-
+  
   // 立即清空输入框
   currentCommand.value = ''
-
+  
   // 等待 DOM 更新后滚动
   await nextTick()
   await nextTick()
   scrollToBottom()
-
+  
   try {
     if (window.electronAPI && connectionId.value) {
       const result = await window.electronAPI.ssh.execute(String(connectionId.value), String(command))
-
+      
       if (result.success) {
         // 更新当前目录
         if (result.currentDir) {
           currentPrompt.value = `${props.connection.username}@${props.connection.host}:${result.currentDir}$ `
         }
-
+        
         // 如果是流式命令，数据会通过 onStreamData 回调实时接收
         if (result.streaming) {
           // 不要立即解除 commandExecuting，等待 stream-end 事件
           return
         }
-
+        
         // 显示标准输出
         if (result.stdout) {
           addTerminalLine({
@@ -983,7 +774,7 @@ const sendCommand = async () => {
       } else {
         output = `模拟执行: ${command}`
       }
-
+      
       addTerminalLine({
         type: 'output',
         content: output,
@@ -1016,7 +807,7 @@ const handleContainerKeydown = (event) => {
     interruptStreaming()
     return
   }
-
+  
   // 如果不是流式命令状态，让输入框处理其他键盘事件
   if (!isStreamingCommand.value && commandInputRef.value) {
     commandInputRef.value.focus()
@@ -1026,13 +817,13 @@ const handleContainerKeydown = (event) => {
 // 中断流式命令
 const interruptStreaming = async () => {
   if (!isStreamingCommand.value) return
-
+  
   addTerminalLine({
     type: 'system',
     content: '^C',
     timestamp: new Date()
   })
-
+  
   // 通知后端中断
   if (window.electronAPI && connectionId.value) {
     try {
@@ -1041,13 +832,13 @@ const interruptStreaming = async () => {
       console.error('中断命令失败:', error)
     }
   }
-
+  
   // 重置状态
   isStreamingCommand.value = false
   commandExecuting.value = false
   currentCommand.value = ''
   streamBuffer.value = '' // 清空流式数据缓冲区
-
+  
   await nextTick()
   focusInput()
 }
@@ -1100,18 +891,18 @@ const handleKeydown = (event) => {
 // 处理实时流式数据
 const handleStreamData = (data) => {
   if (data.connectionId !== connectionId.value) return
-
+  
   const lineType = data.type === 'stdout' ? 'output' : 'error'
-
+  
   // 将新数据添加到缓冲区
   streamBuffer.value += data.data
-
+  
   // 按行分割数据
   const lines = streamBuffer.value.split('\n')
-
+  
   // 最后一个元素可能是不完整的行，保留在缓冲区
   streamBuffer.value = lines.pop() || ''
-
+  
   // 添加完整的行到终端
   lines.forEach(line => {
     if (line || line === '') { // 保留空行
@@ -1127,7 +918,7 @@ const handleStreamData = (data) => {
 // 处理流式结束
 const handleStreamEnd = (data) => {
   if (data.connectionId !== connectionId.value) return
-
+  
   // 如果缓冲区还有剩余数据，添加到终端
   if (streamBuffer.value) {
     addTerminalLine({
@@ -1137,7 +928,7 @@ const handleStreamEnd = (data) => {
     })
     streamBuffer.value = ''
   }
-
+  
   isStreamingCommand.value = false
   commandExecuting.value = false
   focusInput()
@@ -1156,59 +947,9 @@ const openFileManager = async () => {
   })
 }
 
-// 打开进程监控
-const openProcessMonitor = () => {
-  if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
-    return
-  }
-
-  emit('open-process-monitor', {
-    connectionId: connectionId.value
-  })
-}
-
-// 打开网络监控
-const handleOpenNetworkMonitor = () => {
-  if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
-    return
-  }
-
-  emit('open-network-monitor', {
-    connectionId: connectionId.value
-  })
-}
-
-// 打开 Docker 管理
-const openDockerManager = () => {
-  if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
-    return
-  }
-
-  emit('open-docker-manager', {
-    connectionId: connectionId.value
-  })
-}
-
-// 打开 Systemctl 管理
-const openSystemctlManager = () => {
-  if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
-    return
-  }
-
-  emit('open-systemctl-manager', {
-    connectionId: connectionId.value
-  })
-}
-
 // 复制终端选中的文本
 const copyTerminalSelection = () => {
   const selected = terminal.getSelection();
-  // 关闭之前的所有消息，避免堆叠
-  ElMessage.closeAll()
   if (selected) {
     navigator.clipboard.writeText(selected).then(() => {
       ElMessage.success({
@@ -1241,20 +982,20 @@ onMounted(() => {
     content: '🚀 终端已启动',
     timestamp: new Date()
   })
-
+  
   // 监听实时流式数据
   if (window.electronAPI && window.electronAPI.ssh) {
     window.electronAPI.ssh.onStreamData(handleStreamData)
     window.electronAPI.ssh.onStreamEnd(handleStreamEnd)
   }
-
+  
   // 自动连接
   if (props.tabMode) {
     setTimeout(() => {
       connectSSH()
     }, 500)
   }
-
+  
   // 监听主题变化
   const themeObserver = new MutationObserver(() => {
     if (terminal) {
@@ -1262,7 +1003,7 @@ onMounted(() => {
       terminal.setOption('theme', newTheme)
     }
   })
-
+  
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ['data-theme']
@@ -1273,7 +1014,7 @@ onUnmounted(() => {
   if (isConnected.value) {
     disconnectSSH()
   }
-
+  
   // 移除监听器
   if (window.electronAPI && window.electronAPI.ssh) {
     window.electronAPI.ssh.removeStreamDataListener()
@@ -1328,11 +1069,11 @@ defineExpose({
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg,
-    transparent,
-    rgba(255, 121, 198, 0.5),
-    rgba(139, 233, 253, 0.5),
-    rgba(189, 147, 249, 0.5),
+  background: linear-gradient(90deg, 
+    transparent, 
+    rgba(255, 121, 198, 0.5), 
+    rgba(139, 233, 253, 0.5), 
+    rgba(189, 147, 249, 0.5), 
     transparent
   );
   z-index: 10;
@@ -1362,106 +1103,6 @@ defineExpose({
 .terminal-toolbar:hover {
   border-bottom-color: rgba(255, 121, 198, 0.2);
   box-shadow: 0 6px 30px var(--shadow-color);
-}
-
-/* 终端主体区域 */
-.terminal-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  position: relative;
-}
-
-/* 左侧面板容器 */
-.left-panel {
-  flex-shrink: 0;
-  width: 240px;
-  display: flex;
-  flex-direction: column;
-  border-right: 1px solid var(--border-color-light);
-  background: var(--bg-secondary);
-  overflow: hidden;
-}
-
-/* 左侧面板标签页 */
-.left-panel-tabs {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.left-panel-tabs :deep(.el-tabs__header) {
-  margin: 0;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border-color);
-  padding: 0 8px;
-  width: 100%;
-}
-
-.left-panel-tabs :deep(.el-tabs__nav-wrap) {
-  width: 100%;
-}
-
-.left-panel-tabs :deep(.el-tabs__nav-wrap)::after {
-  display: none;
-}
-
-.left-panel-tabs :deep(.el-tabs__nav) {
-  width: 100%;
-  display: flex;
-}
-
-.left-panel-tabs :deep(.el-tabs__item) {
-  color: var(--text-secondary);
-  font-size: 11px;
-  height: 36px;
-  line-height: 36px;
-  padding: 0 12px;
-  border: none;
-  background: transparent;
-  transition: all 0.3s;
-  flex: 1;
-  text-align: center;
-  justify-content: center;
-}
-
-.left-panel-tabs :deep(.el-tabs__item:hover) {
-  color: var(--text-primary);
-  background: rgba(139, 233, 253, 0.05);
-}
-
-.left-panel-tabs :deep(.el-tabs__item.is-active) {
-  color: #8BE9FD;
-  background: rgba(139, 233, 253, 0.1);
-}
-
-.left-panel-tabs :deep(.el-tabs__active-bar) {
-  background: #8BE9FD;
-  height: 2px;
-}
-
-.left-panel-tabs :deep(.el-tabs__content) {
-  flex: 1;
-  overflow: hidden;
-  padding: 0;
-  width: 100%;
-}
-
-.left-panel-tabs :deep(.el-tab-pane) {
-  height: 100%;
-  overflow: hidden;
-  width: 100%;
-}
-
-.tab-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  justify-content: center;
-}
-
-.tab-label .el-icon {
-  font-size: 14px;
 }
 
 .toolbar-left {
@@ -1712,7 +1353,7 @@ defineExpose({
   transition: background-color 0.3s ease;
 }
 
-/* 添加微妙的网格背景效果 - 不覆盖文本选择 */
+/* 添加微妙的网格背景效果 */
 .xterm-container::before {
   content: '';
   position: absolute;
@@ -1720,16 +1361,16 @@ defineExpose({
   left: 0;
   right: 0;
   bottom: 0;
-  background-image:
+  background-image: 
     linear-gradient(rgba(139, 233, 253, 0.03) 1px, transparent 1px),
     linear-gradient(90deg, rgba(139, 233, 253, 0.03) 1px, transparent 1px);
   background-size: 20px 20px;
   pointer-events: none;
   opacity: 0.5;
-  z-index: -1;  /* 改为 -1，不覆盖文本 */
+  z-index: 0;
 }
 
-/* 顶部装饰光晕 - 不覆盖文本选择 */
+/* 顶部装饰光晕 */
 .xterm-container::after {
   content: '';
   position: absolute;
@@ -1741,7 +1382,7 @@ defineExpose({
   background: radial-gradient(ellipse at center, rgba(255, 121, 198, 0.15) 0%, transparent 70%);
   pointer-events: none;
   animation: glow 4s ease-in-out infinite;
-  z-index: -1;  /* 改为 -1，不覆盖文本 */
+  z-index: 1;
 }
 
 @keyframes glow {
@@ -1762,7 +1403,7 @@ defineExpose({
   min-height: 0;
   display: flex;
   flex-direction: column;
-  z-index: 10;  /* 提高 z-index，确保在装饰元素上方 */
+  z-index: 2;
   color: var(--text-primary) !important;
   user-select: text !important;
 }
@@ -1843,28 +1484,20 @@ defineExpose({
 }
 
 @keyframes cursor-glow {
-  0%, 100% {
+  0%, 100% { 
     box-shadow: 0 0 5px rgba(255, 121, 198, 0.5);
   }
-  50% {
+  50% { 
     box-shadow: 0 0 15px rgba(255, 121, 198, 0.8), 0 0 25px rgba(255, 121, 198, 0.4);
   }
 }
 
-/* 选中文本样式 - 确保高亮可见 */
+/* 选中文本样式 */
 .xterm-container :deep(.xterm-selection) {
-  background-color: rgba(100, 200, 255, 0.8) !important;
-  color: #ffffff !important;
+  background-color: rgba(100, 200, 255, 0.6) !important;
+  color: #000 !important;
   border-radius: 2px;
-  box-shadow: 0 0 8px rgba(100, 200, 255, 1) !important;
-  z-index: 100 !important;
-  position: relative !important;
-}
-
-/* 确保选择层在最上方 */
-.xterm-container :deep(.xterm-rows) {
-  position: relative;
-  z-index: 10;
+  box-shadow: 0 0 4px rgba(100, 200, 255, 0.8) !important;
 }
 
 @keyframes fadeIn {
@@ -2012,15 +1645,15 @@ defineExpose({
   right: 0;
   bottom: 0;
   pointer-events: none;
-  z-index: 5;  /* 在 xterm 下方，不覆盖选择 */
+  z-index: 10;
   overflow: hidden;
   border-radius: 4px;
 }
 
 .selection-highlight {
-  background: linear-gradient(120deg,
-    rgba(100, 200, 255, 0.4) 0%,
-    rgba(100, 200, 255, 0.3) 50%,
+  background: linear-gradient(120deg, 
+    rgba(100, 200, 255, 0.4) 0%, 
+    rgba(100, 200, 255, 0.3) 50%, 
     rgba(139, 233, 253, 0.4) 100%);
   color: rgba(255, 255, 255, 0.8);
   padding: 8px 12px;

@@ -6,14 +6,25 @@
         <el-icon><Monitor /></el-icon>
         <span>Hosts</span>
       </div>
-      <el-button 
-        type="primary" 
-        size="small" 
-        circle
-        @click="showNewHostDialog"
-      >
-        <el-icon><Plus /></el-icon>
-      </el-button>
+      <div class="header-buttons">
+        <el-button 
+          type="primary" 
+          size="small" 
+          circle
+          @click="showNewHostDialog"
+          title="新增主机"
+        >
+          <el-icon><Plus /></el-icon>
+        </el-button>
+        <el-button 
+          size="small" 
+          circle
+          @click="openSettings"
+          title="应用设置"
+        >
+          <el-icon><Setting /></el-icon>
+        </el-button>
+      </div>
     </div>
 
     <!-- 搜索框 -->
@@ -29,7 +40,7 @@
 
     <!-- 主机列表 -->
     <div class="hosts-content">
-      <div v-if="filteredHosts.length === 0" class="empty-hosts">
+      <div v-if="filteredGroups.length === 0" class="empty-hosts">
         <el-empty description="No hosts" :image-size="80">
           <el-button type="primary" size="small" @click="showNewHostDialog">
             <el-icon><Plus /></el-icon>
@@ -38,90 +49,233 @@
         </el-empty>
       </div>
 
-      <el-dropdown
-        v-for="(host, index) in filteredHosts"
-        :key="index"
-        trigger="contextmenu"
-        @command="handleContextMenuCommand"
-      >
-        <div
-          class="host-item"
-          @dblclick.stop="openConnection(host)"
-          @click.stop="selectHost(host, index)"
-        >
-          <div class="host-icon">
-            <el-icon :size="16" :color="getHostColor(host)">
-              <Monitor />
-            </el-icon>
-          </div>
-          <div class="host-info">
-            <div class="host-name">{{ host.name || `${host.username}@${host.host}` }}</div>
-            <div class="host-details">
-              <span class="host-address">{{ host.host }}:{{ host.port }}</span>
-              <span class="host-user">{{ host.username }}</span>
-            </div>
-          </div>
+      <!-- 分组列表 -->
+      <div v-for="group in filteredGroups" :key="group.name" class="host-group">
+        <div class="group-header" @click="toggleGroup(group.name)">
+          <el-icon class="group-icon" :class="{ collapsed: !expandedGroups.includes(group.name) }">
+            <CaretBottom />
+          </el-icon>
+          <span class="group-name">{{ group.name }}</span>
+          <span class="group-count">{{ group.hosts.length }}</span>
         </div>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item :command="{ action: 'edit', index }">
-              <el-icon><Edit /></el-icon>
-              编辑
-            </el-dropdown-item>
-            <el-dropdown-item :command="{ action: 'delete', index }" divided>
-              <el-icon><Delete /></el-icon>
-              删除
-            </el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
+
+        <!-- 分组内的主机 -->
+        <div v-show="expandedGroups.includes(group.name)" class="group-hosts">
+          <el-dropdown
+            v-for="(host, index) in group.hosts"
+            :key="`${group.name}-${index}`"
+            trigger="contextmenu"
+            @command="handleContextMenuCommand"
+          >
+            <div
+              class="host-item"
+              @dblclick.stop="openConnection(host)"
+              @click.stop="selectHost(host, index)"
+            >
+              <div class="host-icon">
+                <el-icon :size="16" :color="getHostColor(host)">
+                  <Monitor />
+                </el-icon>
+              </div>
+              <div class="host-info">
+                <div class="host-name">{{ host.name || `${host.username}@${host.host}` }}</div>
+                <div class="host-details">
+                  <span class="host-address">{{ host.host }}:{{ host.port }}</span>
+                  <span class="host-user">{{ host.username }}</span>
+                </div>
+              </div>
+            </div>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item :command="{ action: 'edit', host }">
+                  <el-icon><Edit /></el-icon>
+                  编辑
+                </el-dropdown-item>
+                <el-dropdown-item :command="{ action: 'delete', host }" divided>
+                  <el-icon><Delete /></el-icon>
+                  删除
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
+        </div>
+      </div>
     </div>
 
     <!-- 新建/编辑主机对话框 -->
     <el-dialog
       v-model="hostDialogVisible"
       :title="editingHostIndex >= 0 ? '编辑主机' : '新建主机'"
-      width="500px"
+      width="650px"
       @close="resetHostForm"
     >
-      <el-form :model="hostForm" label-width="100px">
-        <el-form-item label="名称" required>
-          <el-input v-model="hostForm.name" placeholder="例如: 生产服务器" />
-        </el-form-item>
-        <el-form-item label="主机地址" required>
-          <el-input v-model="hostForm.host" placeholder="例如: 192.168.1.100" />
-        </el-form-item>
-        <el-form-item label="端口">
-          <el-input-number v-model="hostForm.port" :min="1" :max="65535" />
-        </el-form-item>
-        <el-form-item label="用户名" required>
-          <el-input v-model="hostForm.username" placeholder="SSH 用户名" />
-        </el-form-item>
-        <el-form-item label="认证方式">
-          <el-select v-model="hostForm.authType">
-            <el-option label="密码" value="password" />
-            <el-option label="私钥" value="privateKey" />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="hostForm.authType === 'password'" label="密码">
-          <el-input
-            v-model="hostForm.password"
-            type="password"
-            placeholder="SSH 密码"
-            show-password
-          />
-        </el-form-item>
-        <el-form-item v-if="hostForm.authType === 'privateKey'" label="私钥文件">
-          <el-input v-model="hostForm.privateKeyPath" placeholder="私钥文件路径">
-            <template #append>
-              <el-button @click="selectPrivateKey">选择</el-button>
-            </template>
-          </el-input>
-        </el-form-item>
-      </el-form>
+      <el-tabs type="border-card">
+        <!-- 基本信息标签 -->
+        <el-tab-pane label="基本信息">
+          <el-form :model="hostForm" label-width="100px">
+            <el-form-item label="名称" required>
+              <el-input v-model="hostForm.name" placeholder="例如: 生产服务器" />
+            </el-form-item>
+            <el-form-item label="主机地址" required>
+              <el-input v-model="hostForm.host" placeholder="例如: 192.168.1.100" />
+            </el-form-item>
+            <el-form-item label="端口">
+              <el-input-number v-model="hostForm.port" :min="1" :max="65535" />
+            </el-form-item>
+            <el-form-item label="用户名" required>
+              <el-input v-model="hostForm.username" placeholder="SSH 用户名" />
+            </el-form-item>
+            <el-form-item label="认证方式">
+              <el-select v-model="hostForm.authType">
+                <el-option label="密码" value="password" />
+                <el-option label="私钥" value="privateKey" />
+              </el-select>
+            </el-form-item>
+            <el-form-item v-if="hostForm.authType === 'password'" label="密码">
+              <el-input
+                v-model="hostForm.password"
+                type="password"
+                placeholder="SSH 密码"
+                show-password
+              />
+            </el-form-item>
+            <el-form-item v-if="hostForm.authType === 'privateKey'" label="私钥文件">
+              <el-input v-model="hostForm.privateKeyPath" placeholder="私钥文件路径">
+                <template #append>
+                  <el-button @click="selectPrivateKey">选择</el-button>
+                </template>
+              </el-input>
+            </el-form-item>
+            <el-form-item label="分组">
+              <el-select v-model="hostForm.group" allow-create filterable placeholder="选择或新建分组">
+                <el-option 
+                  v-for="group in getAllGroups" 
+                  :key="group" 
+                  :label="group" 
+                  :value="group"
+                />
+              </el-select>
+            </el-form-item>
+          </el-form>
+        </el-tab-pane>
+
+        <!-- 端口转发标签 -->
+        <el-tab-pane>
+          <template #label>
+            <span>
+              端口转发
+              <el-badge v-if="hostForm.tunnels && hostForm.tunnels.length > 0" :value="hostForm.tunnels.length" type="primary" />
+            </span>
+          </template>
+          <div class="tunnels-panel">
+            <div class="tunnels-header">
+              <el-button type="primary" size="small" @click="showNewTunnelDialog">
+                <el-icon><Plus /></el-icon>
+                新建隧道
+              </el-button>
+            </div>
+
+            <!-- 隧道列表 -->
+            <el-table :data="hostForm.tunnels || []" stripe style="width: 100%" size="small">
+              <el-table-column prop="name" label="名称" width="120" />
+              <el-table-column prop="type" label="类型" width="80">
+                <template #default="scope">
+                  <el-tag v-if="scope.row.type === 'local'" type="success" size="small">本地</el-tag>
+                  <el-tag v-else-if="scope.row.type === 'remote'" type="warning" size="small">远程</el-tag>
+                  <el-tag v-else type="info" size="small">动态</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="监听" width="140">
+                <template #default="scope">
+                  <span v-if="scope.row.type !== 'dynamic'">{{ scope.row.listenHost }}:{{ scope.row.listenPort }}</span>
+                  <span v-else>{{ scope.row.listenHost }}:{{ scope.row.listenPort }} (SOCKS5)</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="目标" min-width="140">
+                <template #default="scope">
+                  <span v-if="scope.row.type !== 'dynamic'">{{ scope.row.targetHost }}:{{ scope.row.targetPort }}</span>
+                  <span v-else>-</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="120" fixed="right">
+                <template #default="scope">
+                  <el-button type="primary" size="small" link @click="editTunnel(scope.$index)">
+                    <el-icon><Edit /></el-icon>
+                  </el-button>
+                  <el-button type="danger" size="small" link @click="deleteTunnel(scope.$index)">
+                    <el-icon><Delete /></el-icon>
+                  </el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <el-empty v-if="!hostForm.tunnels || hostForm.tunnels.length === 0" description="还没有配置端口转发" :image-size="60" />
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+
       <template #footer>
         <el-button @click="hostDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveHost">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 新建/编辑隧道对话框 -->
+    <el-dialog
+      v-model="tunnelDialogVisible"
+      :title="editingTunnelIndex >= 0 ? '编辑隧道' : '新建隧道'"
+      width="450px"
+      @close="resetTunnelForm"
+    >
+      <el-form :model="tunnelForm" label-width="100px">
+        <el-form-item label="名称" required>
+          <el-input v-model="tunnelForm.name" placeholder="例如: MySQL隧道" />
+        </el-form-item>
+        <el-form-item label="类型" required>
+          <el-select v-model="tunnelForm.type" @change="handleTunnelTypeChange">
+            <el-option label="本地转发" value="local">
+              <div>
+                <div>本地转发 (-L)</div>
+                <div style="font-size: 12px; color: var(--el-text-color-secondary)">本地端口 → 远程目标</div>
+              </div>
+            </el-option>
+            <el-option label="远程转发" value="remote">
+              <div>
+                <div>远程转发 (-R)</div>
+                <div style="font-size: 12px; color: var(--el-text-color-secondary)">远程端口 → 本地目标</div>
+              </div>
+            </el-option>
+            <el-option label="动态转发" value="dynamic">
+              <div>
+                <div>动态转发 (-D)</div>
+                <div style="font-size: 12px; color: var(--el-text-color-secondary)">SOCKS5 代理</div>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+
+        <el-divider content-position="left">监听端</el-divider>
+        <el-form-item label="绑定IP" required>
+          <el-input v-model="tunnelForm.listenHost" placeholder="127.0.0.1" />
+        </el-form-item>
+        <el-form-item label="监听端口" required>
+          <el-input-number v-model="tunnelForm.listenPort" :min="1" :max="65535" style="width: 100%" />
+        </el-form-item>
+
+        <template v-if="tunnelForm.type !== 'dynamic'">
+          <el-divider content-position="left">目标端</el-divider>
+          <el-form-item label="目标地址" required>
+            <el-input v-model="tunnelForm.targetHost" placeholder="127.0.0.1 或目标主机" />
+          </el-form-item>
+          <el-form-item label="目标端口" required>
+            <el-input-number v-model="tunnelForm.targetPort" :min="1" :max="65535" style="width: 100%" />
+          </el-form-item>
+        </template>
+      </el-form>
+
+      <template #footer>
+        <el-button @click="tunnelDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveTunnel">确定</el-button>
       </template>
     </el-dialog>
   </div>
@@ -130,9 +284,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Monitor, Plus, Search, Edit, Delete } from '@element-plus/icons-vue'
+import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom } from '@element-plus/icons-vue'
 
-const emit = defineEmits(['open-connection'])
+const emit = defineEmits(['open-connection', 'open-settings'])
 
 // 数据
 const hosts = ref([])
@@ -141,6 +295,7 @@ const hostDialogVisible = ref(false)
 const editingHostIndex = ref(-1)
 const selectedHost = ref(null)
 const selectedHostIndex = ref(-1)
+const expandedGroups = ref(['default']) // 默认展开 default 分组
 
 // 主机表单
 const hostForm = ref({
@@ -150,22 +305,66 @@ const hostForm = ref({
   username: '',
   authType: 'password',
   password: '',
-  privateKeyPath: ''
+  privateKeyPath: '',
+  group: 'default', // 新增分组字段
+  tunnels: [] // SSH隧道列表
 })
 
-// 过滤后的主机列表
-const filteredHosts = computed(() => {
-  if (!searchKeyword.value) return hosts.value
+// 隧道对话框
+const tunnelDialogVisible = ref(false)
+const editingTunnelIndex = ref(-1)
+const tunnelForm = ref({
+  name: '',
+  type: 'local', // local, remote, dynamic
+  listenHost: '127.0.0.1',
+  listenPort: '',
+  targetHost: '127.0.0.1',
+  targetPort: ''
+})
+
+// 过滤后的分组列表
+const filteredGroups = computed(() => {
+  // 先按分组分类
+  const groupMap = new Map()
+  
+  hosts.value.forEach(host => {
+    const groupName = host.group || 'default'
+    if (!groupMap.has(groupName)) {
+      groupMap.set(groupName, [])
+    }
+    groupMap.get(groupName).push(host)
+  })
+  
+  // 再过滤搜索
+  if (!searchKeyword.value) {
+    return Array.from(groupMap, ([name, hosts]) => ({ name, hosts }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }
   
   const keyword = searchKeyword.value.toLowerCase()
-  return hosts.value.filter(host => {
-    const name = (host.name || '').toLowerCase()
-    const hostAddress = (host.host || '').toLowerCase()
-    const username = (host.username || '').toLowerCase()
-    return name.includes(keyword) || 
-           hostAddress.includes(keyword) || 
-           username.includes(keyword)
+  const filtered = Array.from(groupMap, ([name, hosts]) => {
+    const filteredHosts = hosts.filter(host => {
+      const hostName = (host.name || '').toLowerCase()
+      const hostAddress = (host.host || '').toLowerCase()
+      const username = (host.username || '').toLowerCase()
+      return hostName.includes(keyword) || 
+             hostAddress.includes(keyword) || 
+             username.includes(keyword)
+    })
+    return { name, hosts: filteredHosts }
+  }).filter(group => group.hosts.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name))
+  
+  return filtered
+})
+
+// 获取所有分组名称
+const getAllGroups = computed(() => {
+  const groups = new Set(['default'])
+  hosts.value.forEach(host => {
+    if (host.group) groups.add(host.group)
   })
+  return Array.from(groups).sort()
 })
 
 // 获取主机图标颜色
@@ -177,12 +376,34 @@ const getHostColor = (host) => {
   return colors[Math.abs(hash) % colors.length]
 }
 
+// 切换分组展开/折叠
+const toggleGroup = (groupName) => {
+  const index = expandedGroups.value.indexOf(groupName)
+  if (index > -1) {
+    expandedGroups.value.splice(index, 1)
+  } else {
+    expandedGroups.value.push(groupName)
+  }
+}
+
 // 加载主机列表
-const loadHosts = () => {
+const loadHosts = async () => {
   try {
-    const saved = localStorage.getItem('ssh-connections')
-    if (saved) {
-      hosts.value = JSON.parse(saved)
+    if (window.connectionAPI) {
+      const result = await window.connectionAPI.loadConnections()
+      if (result.success) {
+        hosts.value = result.connections
+        console.log('已加载主机列表:', hosts.value.length)
+      } else {
+        console.error('加载主机列表失败:', result.message)
+        hosts.value = []
+      }
+    } else {
+      // 降级到 localStorage
+      const saved = localStorage.getItem('ssh-connections')
+      if (saved) {
+        hosts.value = JSON.parse(saved)
+      }
     }
   } catch (error) {
     console.error('加载主机列表失败:', error)
@@ -190,9 +411,34 @@ const loadHosts = () => {
 }
 
 // 保存主机列表
-const saveHosts = () => {
+const saveHosts = async () => {
   try {
-    localStorage.setItem('ssh-connections', JSON.stringify(hosts.value))
+    if (window.connectionAPI) {
+      // 创建可序列化的副本，只包含需要的字段
+      const serializedHosts = hosts.value.map(host => ({
+        name: host.name,
+        host: host.host,
+        port: host.port,
+        username: host.username,
+        authType: host.authType,
+        password: host.password,
+        privateKeyPath: host.privateKeyPath,
+        group: host.group // 保存分组
+      }))
+      
+      const result = await window.connectionAPI.saveConnections(serializedHosts)
+      if (result.success) {
+        ElMessage.success('主机列表已保存')
+        console.log('主机列表已保存')
+      } else {
+        console.error('保存主机列表失败:', result.message)
+        ElMessage.error('保存失败: ' + result.message)
+      }
+    } else {
+      // 降级到 localStorage
+      localStorage.setItem('ssh-connections', JSON.stringify(hosts.value))
+      ElMessage.success('主机列表已保存')
+    }
   } catch (error) {
     console.error('保存主机列表失败:', error)
     ElMessage.error('保存失败')
@@ -215,7 +461,94 @@ const resetHostForm = () => {
     username: '',
     authType: 'password',
     password: '',
-    privateKeyPath: ''
+    privateKeyPath: '',
+    group: 'default', // 重置分组
+    tunnels: [] // 重置隧道
+  }
+}
+
+// 重置隧道表单
+const resetTunnelForm = () => {
+  tunnelForm.value = {
+    name: '',
+    type: 'local',
+    listenHost: '127.0.0.1',
+    listenPort: '',
+    targetHost: '127.0.0.1',
+    targetPort: ''
+  }
+}
+
+// 显示新建隧道对话框
+const showNewTunnelDialog = () => {
+  editingTunnelIndex.value = -1
+  resetTunnelForm()
+  tunnelDialogVisible.value = true
+}
+
+// 编辑隧道
+const editTunnel = (index) => {
+  editingTunnelIndex.value = index
+  tunnelForm.value = { ...hostForm.value.tunnels[index] }
+  tunnelDialogVisible.value = true
+}
+
+// 删除隧道
+const deleteTunnel = (index) => {
+  ElMessageBox.confirm(
+    `确定要删除隧道 "${hostForm.value.tunnels[index].name}" 吗？`,
+    '确认删除',
+    {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(() => {
+    if (!hostForm.value.tunnels) hostForm.value.tunnels = []
+    hostForm.value.tunnels.splice(index, 1)
+    ElMessage.success('隧道已删除')
+  }).catch(() => {})
+}
+
+// 保存隧道
+const saveTunnel = () => {
+  // 验证
+  if (!tunnelForm.value.name || !tunnelForm.value.listenPort) {
+    ElMessage.warning('请填写完整信息')
+    return
+  }
+
+  if (tunnelForm.value.type !== 'dynamic' && (!tunnelForm.value.targetHost || !tunnelForm.value.targetPort)) {
+    ElMessage.warning('请填写目标地址和端口')
+    return
+  }
+
+  if (!hostForm.value.tunnels) {
+    hostForm.value.tunnels = []
+  }
+
+  if (editingTunnelIndex.value >= 0) {
+    // 编辑模式
+    hostForm.value.tunnels[editingTunnelIndex.value] = { ...tunnelForm.value }
+    ElMessage.success('隧道已更新')
+  } else {
+    // 新建模式
+    hostForm.value.tunnels.push({ ...tunnelForm.value })
+    ElMessage.success('隧道已添加')
+  }
+
+  tunnelDialogVisible.value = false
+  resetTunnelForm()
+}
+
+// 隧道类型改变时
+const handleTunnelTypeChange = () => {
+  // 动态转发不需要目标地址和端口
+  if (tunnelForm.value.type === 'dynamic') {
+    tunnelForm.value.targetHost = ''
+    tunnelForm.value.targetPort = ''
+  } else if (!tunnelForm.value.targetHost) {
+    tunnelForm.value.targetHost = '127.0.0.1'
   }
 }
 
@@ -259,9 +592,9 @@ const selectHost = (host, index) => {
 
 // 处理右键菜单命令
 const handleContextMenuCommand = (command) => {
-  const { action, index } = command
-  selectedHostIndex.value = index
-  selectedHost.value = hosts.value[index]
+  const { action, host } = command
+  selectedHostIndex.value = hosts.value.findIndex(h => h === host)
+  selectedHost.value = host
   
   if (action === 'edit') {
     editHost()
@@ -294,7 +627,7 @@ const deleteHost = async () => {
       )
       
       hosts.value.splice(selectedHostIndex.value, 1)
-      saveHosts()
+      await saveHosts()
       ElMessage.success('主机已删除')
     } catch {
       // 用户取消
@@ -330,8 +663,13 @@ const selectPrivateKey = async () => {
   }
 }
 
-onMounted(() => {
-  loadHosts()
+// 打开设置
+const openSettings = () => {
+  emit('open-settings')
+}
+
+onMounted(async () => {
+  await loadHosts()
 })
 </script>
 
@@ -340,9 +678,10 @@ onMounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #1a1a1d 0%, #252526 100%);
-  color: #e8e8e8;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   position: relative;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .hosts-list::before {
@@ -360,7 +699,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid rgba(60, 60, 60, 0.5);
+  border-bottom: 1px solid var(--border-color-light);
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
   backdrop-filter: blur(10px);
 }
@@ -371,9 +710,10 @@ onMounted(() => {
   gap: 8px;
   font-weight: 600;
   font-size: 12px;
-  color: #ffffff;
+  color: var(--text-primary);
   letter-spacing: 0.5px;
   text-transform: uppercase;
+  transition: color 0.3s ease;
 }
 
 .header-title .el-icon {
@@ -383,19 +723,27 @@ onMounted(() => {
   -webkit-text-fill-color: transparent;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .search-box {
   padding: 8px 12px;
-  border-bottom: 1px solid rgba(60, 60, 60, 0.3);
-  background: rgba(30, 30, 30, 0.5);
+  border-bottom: 1px solid var(--border-color-light);
+  background: var(--bg-tertiary);
+  transition: background-color 0.3s ease;
 }
 
 .search-box :deep(.el-input__wrapper) {
-  background: #3c3c3c;
+  background: var(--input-bg);
   box-shadow: none;
+  transition: background-color 0.3s ease;
 }
 
 .search-box :deep(.el-input__inner) {
-  color: #cccccc;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
 
 .hosts-content {
@@ -410,6 +758,65 @@ onMounted(() => {
   text-align: center;
 }
 
+.host-group {
+  margin-bottom: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(102, 126, 234, 0.05);
+  border: 1px solid var(--border-color-light);
+  position: relative;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: rgba(102, 126, 234, 0.08);
+  border-bottom: 1px solid var(--border-color-light);
+  transition: background 0.3s;
+}
+
+.group-header:hover {
+  background: rgba(102, 126, 234, 0.12);
+}
+
+.group-header .group-icon {
+  font-size: 16px;
+  margin-right: 8px;
+  color: var(--text-secondary);
+  transition: transform 0.3s;
+}
+
+.group-header .group-icon.collapsed {
+  transform: rotate(-90deg);
+}
+
+.group-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.2px;
+  transition: color 0.3s;
+}
+
+.group-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+.group-hosts {
+  padding: 0 12px 10px;
+  transition: max-height 0.3s ease-in-out;
+  overflow: hidden;
+}
+
 .host-item {
   display: flex;
   align-items: center;
@@ -418,8 +825,8 @@ onMounted(() => {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: linear-gradient(135deg, rgba(60, 60, 60, 0.15) 0%, rgba(45, 45, 48, 0.15) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: rgba(102, 126, 234, 0.05);
+  border: 1px solid var(--border-color-light);
   position: relative;
   overflow: hidden;
   animation: slideInRight 0.3s ease-out;
@@ -438,7 +845,7 @@ onMounted(() => {
 }
 
 .host-item:hover {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.12) 0%, rgba(118, 75, 162, 0.12) 100%);
+  background: rgba(102, 126, 234, 0.12);
   border-color: rgba(102, 126, 234, 0.3);
   transform: translateX(4px) scale(1.01);
   box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
@@ -461,12 +868,12 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+  background: rgba(102, 126, 234, 0.1);
   transition: all 0.3s;
 }
 
 .host-item:hover .host-icon {
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+  background: rgba(102, 126, 234, 0.2);
   transform: scale(1.05);
 }
 
@@ -482,7 +889,7 @@ onMounted(() => {
 .host-name {
   font-size: 12px;
   font-weight: 600;
-  color: #f0f0f0;
+  color: var(--text-primary);
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -492,15 +899,16 @@ onMounted(() => {
 }
 
 .host-item:hover .host-name {
-  color: #ffffff;
+  color: var(--accent-color);
 }
 
 .host-details {
   display: flex;
   gap: 6px;
   font-size: 10px;
-  color: #999;
+  color: var(--text-secondary);
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  transition: color 0.3s;
 }
 
 .host-address,
@@ -517,38 +925,73 @@ onMounted(() => {
 .host-item:hover .host-address,
 .host-item:hover .host-user {
   background: rgba(255, 255, 255, 0.06);
-  color: #bbb;
+  color: var(--text-primary);
 }
 
 /* 对话框样式调整 */
 :deep(.el-dialog) {
-  background: #2d2d30;
-  border: 1px solid #3c3c3c;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  transition: background-color 0.3s ease;
 }
 
 :deep(.el-dialog__title) {
-  color: #ffffff;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
 
 :deep(.el-dialog__body) {
-  color: #cccccc;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
 
 :deep(.el-form-item__label) {
-  color: #cccccc;
+  color: var(--text-primary);
 }
 
 :deep(.el-input__wrapper) {
-  background: #3c3c3c;
+  background: var(--input-bg);
   box-shadow: none;
 }
 
 :deep(.el-input__inner) {
-  color: #cccccc;
+  color: var(--text-primary);
 }
 
 :deep(.el-select .el-input__wrapper) {
-  background: #3c3c3c;
+  background: var(--input-bg);
+}
+
+/* 隧道面板样式 */
+.tunnels-panel {
+  padding: 16px;
+  min-height: 300px;
+}
+
+.tunnels-header {
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tunnels-panel :deep(.el-table) {
+  background: transparent;
+}
+
+.tunnels-panel :deep(.el-table th),
+.tunnels-panel :deep(.el-table tr) {
+  background: transparent;
+}
+
+.tunnels-panel :deep(.el-table td),
+.tunnels-panel :deep(.el-table th) {
+  border-color: var(--border-color-light);
+  color: var(--text-primary);
+}
+
+.tunnels-panel :deep(.el-table__empty-text) {
+  color: var(--text-secondary);
 }
 </style>
 

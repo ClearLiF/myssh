@@ -2,39 +2,76 @@
   <div id="app">
     <!-- 主内容区域 -->
     <el-container class="main-container">
-      <!-- 左侧主机列表 -->
-      <el-aside width="280px" class="hosts-sidebar">
-        <HostsList @open-connection="handleOpenConnection" />
-      </el-aside>
-
-      <!-- 右侧标签页区域 -->
+      <!-- 主标签页区域 -->
       <el-main class="tabs-content">
         <el-tabs
           v-model="activeTabName"
           type="card"
-          closable
           @tab-remove="handleTabRemove"
           class="connection-tabs"
         >
+          <!-- Hosts 固定标签页（不可关闭） -->
+          <el-tab-pane
+            name="hosts"
+            :closable="false"
+          >
+            <template #label>
+              <span class="hosts-tab-label">
+                <el-icon><Monitor /></el-icon>
+                Hosts
+              </span>
+            </template>
+            <HostsList @open-connection="handleOpenConnection" @open-settings="handleOpenSettings" />
+          </el-tab-pane>
+
+          <!-- 其他动态标签页 -->
           <el-tab-pane
             v-for="tab in openTabs"
             :key="tab.name"
             :label="tab.label"
             :name="tab.name"
+            :closable="true"
           >
             <ConnectionTab 
+              v-if="!tab.type || tab.type === 'connection'"
               :connection="tab.connection" 
               :tab-id="tab.name"
+              @open-sftp="handleOpenSFTP"
+              @open-process-monitor="handleOpenProcessMonitor"
+              @open-network-monitor="handleOpenNetworkMonitor"
+              @open-docker-manager="handleOpenDockerManager"
+              @open-systemctl-manager="handleOpenSystemctlManager"
+            />
+            <SFTPManagerTab
+              v-else-if="tab.type === 'sftp'"
+              :connection="tab.connection"
+              :connection-id="tab.connectionId"
+              :tab-mode="true"
+            />
+            <ProcessMonitorTab
+              v-else-if="tab.type === 'process-monitor'"
+              :connection="tab.connection"
+              :connection-id="tab.connectionId"
+            />
+            <NetworkMonitorTab
+              v-else-if="tab.type === 'network-monitor'"
+              :connection="tab.connection"
+              :connection-id="tab.connectionId"
+            />
+            <DockerManagerTab
+              v-else-if="tab.type === 'docker-manager'"
+              :connection="tab.connection"
+              :connection-id="tab.connectionId"
+            />
+            <SystemctlManagerTab
+              v-else-if="tab.type === 'systemctl-manager'"
+              :connection="tab.connection"
+              :connection-id="tab.connectionId"
+            />
+            <SettingsTab
+              v-else-if="tab.type === 'settings'"
             />
           </el-tab-pane>
-          
-          <el-empty v-if="openTabs.length === 0" description="双击左侧主机列表打开连接">
-            <template #image>
-              <el-icon :size="100" color="#909399">
-                <Monitor />
-              </el-icon>
-            </template>
-          </el-empty>
         </el-tabs>
       </el-main>
     </el-container>
@@ -42,15 +79,51 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import HostsList from './components/HostsList.vue'
 import ConnectionTab from './components/ConnectionTab.vue'
+import SFTPManagerTab from './components/SFTPManagerTab.vue'
+import SettingsTab from './components/SettingsTab.vue'
+import ProcessMonitorTab from './components/ProcessMonitorTab.vue'
+import NetworkMonitorTab from './components/NetworkMonitorTab.vue'
+import DockerManagerTab from './components/DockerManagerTab.vue'
+import SystemctlManagerTab from './components/SystemctlManagerTab.vue'
 
-// 打开的标签页列表
+// 打开的标签页列表（不包含 Hosts）
 const openTabs = ref([])
-const activeTabName = ref('')
+const activeTabName = ref('hosts') // 默认激活 Hosts 标签页
 let tabIndex = 0
+
+// 加载主题设置
+const loadTheme = async () => {
+  try {
+    if (window.electronAPI && window.electronAPI.settings) {
+      const result = await window.electronAPI.settings.getTheme()
+      if (result.success) {
+        const theme = result.theme || 'dark'
+        applyTheme(theme)
+      }
+    }
+  } catch (error) {
+    console.error('加载主题设置失败:', error)
+  }
+}
+
+// 应用主题
+const applyTheme = (theme) => {
+  const html = document.documentElement
+  if (theme === 'light') {
+    html.setAttribute('data-theme', 'light')
+  } else {
+    html.removeAttribute('data-theme')
+  }
+}
+
+// 在组件挂载时加载主题
+onMounted(() => {
+  loadTheme()
+})
 
 // 处理打开连接
 const handleOpenConnection = (connection) => {
@@ -85,6 +158,96 @@ const handleTabRemove = (targetName) => {
   activeTabName.value = activeName
   openTabs.value = tabs.filter(tab => tab.name !== targetName)
 }
+
+// 处理打开 SFTP 文件管理器
+const handleOpenSFTP = ({ connection, connectionId }) => {
+  const newTabName = `sftp-${++tabIndex}`
+  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: `📁 ${connection.name || connection.host} [${timestamp}]`,
+    connection: connection,
+    connectionId: connectionId,
+    type: 'sftp'  // 标记为 SFTP 标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 处理打开进程监控
+const handleOpenProcessMonitor = ({ connection, connectionId }) => {
+  const newTabName = `process-${++tabIndex}`
+  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: `📊 进程 - ${connection.name || connection.host}`,
+    connection: connection,
+    connectionId: connectionId,
+    type: 'process-monitor'  // 标记为进程监控标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 处理打开网络监控
+const handleOpenNetworkMonitor = ({ connection, connectionId }) => {
+  const newTabName = `network-${++tabIndex}`
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: `🌐 网络 - ${connection.name || connection.host}`,
+    connection: connection,
+    connectionId: connectionId,
+    type: 'network-monitor'  // 标记为网络监控标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 处理打开 Docker 管理
+const handleOpenDockerManager = ({ connection, connectionId }) => {
+  const newTabName = `docker-${++tabIndex}`
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: `🐳 Docker - ${connection.name || connection.host}`,
+    connection: connection,
+    connectionId: connectionId,
+    type: 'docker-manager'  // 标记为 Docker 管理标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 处理打开 Systemctl 管理
+const handleOpenSystemctlManager = ({ connection, connectionId }) => {
+  const newTabName = `systemctl-${++tabIndex}`
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: `⚙️ Systemctl - ${connection.name || connection.host}`,
+    connection: connection,
+    connectionId: connectionId,
+    type: 'systemctl-manager'  // 标记为 Systemctl 管理标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 处理打开设置
+const handleOpenSettings = () => {
+  const newTabName = `settings-${++tabIndex}`
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: '⚙️ 设置',
+    type: 'settings'  // 标记为设置标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 暴露主题管理函数供 SettingsTab 使用
+window.__app = {
+  loadTheme,
+  applyTheme
+}
 </script>
 
 <style scoped>
@@ -92,8 +255,9 @@ const handleTabRemove = (targetName) => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  background: var(--bg-primary);
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  transition: background-color 0.3s ease;
 }
 
 .main-container {
@@ -102,21 +266,12 @@ const handleTabRemove = (targetName) => {
   overflow: hidden;
 }
 
-.hosts-sidebar {
-  background: linear-gradient(180deg, #1a1a1d 0%, #252526 100%);
-  border-right: 1px solid rgba(48, 54, 61, 0.5);
-  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  z-index: 10;
-}
 
 .tabs-content {
   padding: 0;
-  background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+  background: var(--bg-primary);
   overflow: hidden;
+  transition: background-color 0.3s ease;
 }
 
 .connection-tabs {
@@ -127,10 +282,11 @@ const handleTabRemove = (targetName) => {
 
 .connection-tabs :deep(.el-tabs__header) {
   margin: 0;
-  background: linear-gradient(135deg, rgba(22, 27, 34, 0.95) 0%, rgba(26, 31, 38, 0.95) 100%);
+  background: var(--bg-secondary);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .connection-tabs :deep(.el-tabs__nav-wrap)::after {
@@ -149,7 +305,7 @@ const handleTabRemove = (targetName) => {
 }
 
 .connection-tabs :deep(.el-tabs__item) {
-  color: #8b949e;
+  color: var(--text-secondary);
   border: none;
   background: transparent;
   font-weight: 500;
@@ -161,13 +317,13 @@ const handleTabRemove = (targetName) => {
 }
 
 .connection-tabs :deep(.el-tabs__item:hover) {
-  color: #c9d1d9;
+  color: var(--text-primary);
   background: rgba(255, 255, 255, 0.03);
 }
 
 .connection-tabs :deep(.el-tabs__item.is-active) {
-  color: #ffffff;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+  color: var(--text-primary);
+  background: rgba(102, 126, 234, 0.15);
   border-bottom: 2px solid;
   border-image: linear-gradient(90deg, #667eea 0%, #764ba2 100%) 1;
 }
@@ -179,5 +335,17 @@ const handleTabRemove = (targetName) => {
 .connection-tabs :deep(.el-tabs__item .el-icon-close:hover) {
   background: rgba(255, 255, 255, 0.1);
   color: #ff7b72;
+}
+
+/* Hosts 标签页标签样式 */
+.hosts-tab-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.hosts-tab-label .el-icon {
+  font-size: 14px;
 }
 </style>

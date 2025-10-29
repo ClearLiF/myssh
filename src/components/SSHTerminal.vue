@@ -329,17 +329,18 @@ const connectSSH = async () => {
   try {
     // 检查是否在 Electron 环境中
     if (window.electronAPI) {
-      // 创建一个纯数据对象，避免序列化问题
-      const connectionConfig = {
+      // 使用 JSON 序列化/反序列化来创建纯数据对象，去除 Vue reactive 代理
+      // 这可以防止 "An object could not be cloned" 错误
+      const plainConfig = JSON.parse(JSON.stringify({
         host: sshConfig.value.host,
         port: sshConfig.value.port,
         username: sshConfig.value.username,
         authType: sshConfig.value.authType,
         password: sshConfig.value.password,
         privateKeyPath: sshConfig.value.privateKeyPath
-      }
+      }))
       
-      const result = await window.electronAPI.ssh.connect(connectionConfig)
+      const result = await window.electronAPI.ssh.connect(plainConfig)
       if (result.success) {
         connectionId.value = result.connectionId
         isConnected.value = true
@@ -613,21 +614,57 @@ const formatOutput = (content) => {
   return escaped.replace(/\n/g, '<br>')
 }
 
-// 加载所有保存的连接
-const loadSavedConnections = () => {
+// 从文件系统加载连接列表
+const loadSavedConnections = async () => {
   try {
-    const connections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
-    savedConnections.value = connections
+    if (window.connectionAPI) {
+      const result = await window.connectionAPI.loadConnections()
+      if (result.success) {
+        savedConnections.value = result.connections
+        console.log('已加载连接配置:', savedConnections.value.length)
+      } else {
+        console.error('加载连接配置失败:', result.message)
+        savedConnections.value = []
+      }
+    } else {
+      // 降级到 localStorage
+      const connections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
+      savedConnections.value = connections
+    }
   } catch (error) {
     console.error('加载连接配置失败:', error)
     savedConnections.value = []
   }
 }
 
-// 保存连接列表到 localStorage
-const saveSavedConnections = () => {
+// 保存连接列表到文件系统
+const saveSavedConnections = async () => {
   try {
-    localStorage.setItem('ssh-connections', JSON.stringify(savedConnections.value))
+    if (window.connectionAPI) {
+      // 创建可序列化的副本，只包含需要的字段
+      const serializedConnections = savedConnections.value.map(conn => ({
+        name: conn.name,
+        host: conn.host,
+        port: conn.port,
+        username: conn.username,
+        authType: conn.authType,
+        password: conn.password,
+        privateKeyPath: conn.privateKeyPath
+      }))
+      
+      const result = await window.connectionAPI.saveConnections(serializedConnections)
+      if (result.success) {
+        ElMessage.success('连接配置已保存')
+        console.log('连接配置已保存')
+      } else {
+        console.error('保存连接配置失败:', result.message)
+        ElMessage.error('保存配置失败: ' + result.message)
+      }
+    } else {
+      // 降级到 localStorage
+      localStorage.setItem('ssh-connections', JSON.stringify(savedConnections.value))
+      ElMessage.success('连接配置已保存')
+    }
   } catch (error) {
     console.error('保存连接配置失败:', error)
     ElMessage.error('保存配置失败')

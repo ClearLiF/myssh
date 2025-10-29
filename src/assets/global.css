@@ -5,6 +5,46 @@
   box-sizing: border-box;
 }
 
+/* 暗色主题（默认） */
+:root {
+  --bg-primary: #161b22;
+  --bg-secondary: #1a1f26;
+  --bg-tertiary: #30363d;
+  --text-primary: #c9d1d9;
+  --text-secondary: #8b949e;
+  --border-color: rgba(48, 54, 61, 0.5);
+  --border-color-light: rgba(48, 54, 61, 0.3);
+  --accent-color: #667eea;
+  --accent-color-hover: #7c8ef0;
+  --scrollbar-bg: #1e1e1e;
+  --scrollbar-thumb: #424242;
+  --scrollbar-thumb-hover: #4e4e4e;
+  --card-bg: rgba(30, 35, 43, 0.8);
+  --input-bg: rgba(48, 54, 61, 0.5);
+  --hover-bg: rgba(102, 126, 234, 0.08);
+  --shadow-color: rgba(0, 0, 0, 0.15);
+}
+
+/* 明亮主题 */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f6f7f9;
+  --bg-tertiary: #e8eaed;
+  --text-primary: #202124;
+  --text-secondary: #5f6368;
+  --border-color: rgba(202, 204, 207, 0.5);
+  --border-color-light: rgba(202, 204, 207, 0.3);
+  --accent-color: #667eea;
+  --accent-color-hover: #7c8ef0;
+  --scrollbar-bg: #f6f7f9;
+  --scrollbar-thumb: #d3d3d3;
+  --scrollbar-thumb-hover: #bfbfbf;
+  --card-bg: rgba(255, 255, 255, 0.95);
+  --input-bg: rgba(241, 243, 244, 0.8);
+  --hover-bg: rgba(102, 126, 234, 0.08);
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
 /* 字体优化 - 使用更清晰的字体栈 */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB', 'SimSun', sans-serif;
@@ -13,6 +53,9 @@ body {
   text-rendering: optimizeLegibility;
   font-feature-settings: "kern" 1;
   font-kerning: normal;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* 代码字体 */
@@ -29,22 +72,22 @@ code, pre, .monospace {
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e1e1e;
+  background: var(--scrollbar-bg);
   border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #424242;
+  background: var(--scrollbar-thumb);
   border-radius: 5px;
-  border: 2px solid #1e1e1e;
+  border: 2px solid var(--scrollbar-bg);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4e4e4e;
+  background: var(--scrollbar-thumb-hover);
 }
 
 ::-webkit-scrollbar-corner {
-  background: #1e1e1e;
+  background: var(--scrollbar-bg);
 }
 
 /* Element UI 样式覆盖 - 使其更现代 */
@@ -58,12 +101,12 @@ code, pre, .monospace {
 }
 
 .el-button--primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--accent-color) 0%, #764ba2 100%);
   box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .el-button--primary:hover {
-  background: linear-gradient(135deg, #7c8ef0 0%, #8b5cb5 100%);
+  background: linear-gradient(135deg, var(--accent-color-hover) 0%, #8b5cb5 100%);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
   transform: translateY(-1px);
 }
@@ -81,21 +124,24 @@ code, pre, .monospace {
 .el-input__wrapper {
   border-radius: 6px;
   box-shadow: none;
-  border: 1px solid #3c3c3c;
+  border: 1px solid var(--border-color);
+  background-color: var(--input-bg);
   transition: all 0.2s;
 }
 
 .el-input__wrapper:hover {
-  border-color: #515151;
+  border-color: var(--accent-color);
 }
 
 .el-input__wrapper.is-focus {
-  border-color: #667eea;
+  border-color: var(--accent-color);
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
 }
 
 .el-input__inner {
   font-size: 13px;
+  color: var(--text-primary);
+  background-color: transparent;
 }
 
 .el-tag {
@@ -109,8 +155,9 @@ code, pre, .monospace {
 
 .el-card {
   border-radius: 8px;
-  border: 1px solid #3c3c3c;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-color);
+  background-color: var(--card-bg);
+  box-shadow: 0 2px 8px var(--shadow-color);
 }
 
 .el-dialog {
@@ -123,14 +170,32 @@ code, pre, .monospace {
   height: 36px;
   line-height: 36px;
   padding: 0 16px;
+  color: var(--text-secondary);
+}
+
+.el-tabs__item.is-active {
+  color: var(--accent-color);
 }
 
 .el-table {
   font-size: 13px;
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
 }
 
 .el-table th {
   font-weight: 600;
+  color: var(--text-secondary) !important;
+}
+
+.el-table tr,
+.el-table td {
+  background-color: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.el-table__body tr:hover > td {
+  background-color: var(--hover-bg) !important;
 }
 
 /* 动画 */
@@ -163,46 +228,6 @@ code, pre, .monospace {
   }
 }
 
-/* Element UI 表格样式覆盖 - 确保没有白色背景 */
-.el-table {
-  background-color: transparent !important;
-  color: #c9d1d9 !important;
-}
-
-.el-table tr,
-.el-table th,
-.el-table td {
-  background-color: transparent !important;
-  color: #c9d1d9 !important;
-}
-
-.el-table__header-wrapper,
-.el-table__body-wrapper,
-.el-table__footer-wrapper {
-  background-color: transparent !important;
-}
-
-.el-table__inner-wrapper {
-  background-color: transparent !important;
-}
-
-.el-table--striped .el-table__body tr.el-table__row--striped td {
-  background-color: rgba(255, 255, 255, 0.02) !important;
-}
-
-.el-table__body tr:hover > td {
-  background-color: rgba(102, 126, 234, 0.08) !important;
-}
-
-.el-table th.el-table__cell {
-  background-color: transparent !important;
-  color: #8b949e !important;
-}
-
-.el-table__empty-block {
-  background-color: transparent !important;
-}
-
 /* 工具类 */
 .glass-effect {
   background: rgba(45, 45, 48, 0.8);
@@ -211,18 +236,60 @@ code, pre, .monospace {
 }
 
 .shadow-sm {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 1px 3px var(--shadow-color);
 }
 
 .shadow-md {
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 6px var(--shadow-color);
 }
 
 .shadow-lg {
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 20px var(--shadow-color);
 }
 
 .transition-all {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* XTerm 文本选择增强 - 全局样式 */
+.xterm .xterm-selection-layer {
+  z-index: 2 !important;
+  pointer-events: none !important;
+}
+
+.xterm .xterm-selection-layer .xterm-selection {
+  position: absolute !important;
+  background-color: rgba(100, 200, 255, 0.3) !important;
+  opacity: 1 !important;
+  mix-blend-mode: normal !important;
+}
+
+/* 防止字体叠加 */
+.xterm .xterm-rows {
+  isolation: auto;
+}
+
+.xterm .xterm-char-measure-element {
+  visibility: hidden !important;
+}
+
+/* 确保文本可以被选中 */
+.xterm, .xterm * {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+}
+
+/* 浏览器原生选择样式 - 确保文字颜色不变 */
+.xterm ::selection {
+  background-color: rgba(100, 200, 255, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
+}
+
+.xterm ::-moz-selection {
+  background-color: rgba(100, 200, 255, 0.3) !important;
+  color: inherit !important;
+  text-shadow: none !important;
 }
 
