@@ -1178,6 +1178,194 @@ ipcMain.handle('system:deleteFile', async (event, filePath) => {
   }
 })
 
+// IPC 处理器 - 删除文件夹
+ipcMain.handle('system:deleteFolder', async (event, folderPath) => {
+  try {
+    const fs = require('fs')
+    
+    if (fs.existsSync(folderPath)) {
+      fs.rmSync(folderPath, { recursive: true, force: true })
+      console.log(`已删除临时文件夹: ${folderPath}`)
+      return {
+        success: true,
+        message: '文件夹已删除'
+      }
+    }
+    
+    return {
+      success: true,
+      message: '文件夹不存在'
+    }
+  } catch (error) {
+    console.error('删除文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 在文件夹中显示文件
+ipcMain.handle('system:showItemInFolder', async (event, filePath) => {
+  try {
+    const { shell } = require('electron')
+    shell.showItemInFolder(filePath)
+    return {
+      success: true
+    }
+  } catch (error) {
+    console.error('打开文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 保存文件到临时目录
+ipcMain.handle('system:saveFilesToTemp', async (event, { tempDir, filesData }) => {
+  try {
+    const fs = require('fs')
+    const path = require('path')
+    
+    console.log(`保存 ${filesData.length} 个文件到: ${tempDir}`)
+    
+    // 创建临时目录
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true })
+    }
+    
+    let successCount = 0
+    let skipCount = 0
+    const errors = []
+    
+    // 保存每个文件
+    for (const fileData of filesData) {
+      try {
+        const filePath = path.join(tempDir, fileData.relativePath)
+        const fileDir = path.dirname(filePath)
+        
+        // 跳过特殊文件（如 .asar, .node 等二进制模块）
+        const fileName = path.basename(filePath).toLowerCase()
+        if (fileName.endsWith('.asar') || 
+            fileName.endsWith('.node') || 
+            fileName.endsWith('.dylib') ||
+            fileName.endsWith('.so') ||
+            fileName.endsWith('.dll')) {
+          console.log(`  跳过特殊文件: ${fileData.relativePath}`)
+          skipCount++
+          continue
+        }
+        
+        // 确保目录存在
+        if (!fs.existsSync(fileDir)) {
+          fs.mkdirSync(fileDir, { recursive: true })
+        }
+        
+        // 写入文件（fileData.data 是 Uint8Array）
+        const buffer = Buffer.from(fileData.data)
+        fs.writeFileSync(filePath, buffer)
+        console.log(`  保存: ${fileData.relativePath} (${fileData.size} bytes)`)
+        successCount++
+      } catch (fileError) {
+        // 记录错误但继续处理其他文件
+        console.warn(`  保存文件失败: ${fileData.relativePath}`, fileError.message)
+        errors.push({
+          file: fileData.relativePath,
+          error: fileError.message
+        })
+        skipCount++
+      }
+    }
+    
+    console.log(`保存完成: 成功 ${successCount} 个, 跳过 ${skipCount} 个`)
+    
+    if (successCount === 0) {
+      return {
+        success: false,
+        message: `没有成功保存任何文件。错误: ${errors.map(e => e.error).join(', ')}`
+      }
+    }
+    
+    return {
+      success: true,
+      message: `文件已保存到临时目录 (成功: ${successCount}, 跳过: ${skipCount})`,
+      stats: {
+        success: successCount,
+        skipped: skipCount,
+        errors: errors
+      }
+    }
+  } catch (error) {
+    console.error('保存文件到临时目录失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 压缩文件夹（从文件夹路径）
+ipcMain.handle('system:compressFolderPath', async (event, { folderPath, folderName }) => {
+  try {
+    const archiver = require('archiver')
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    
+    console.log(`压缩文件夹: ${folderPath} -> ${folderName}.tar.gz`)
+    
+    // 创建临时目录
+    const tempDir = path.join(os.tmpdir(), 'myssh-uploads')
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true })
+    }
+    
+    // 生成临时 tar.gz 文件路径（tar 更通用，几乎所有 Linux 都自带）
+    const tarPath = path.join(tempDir, `${folderName}_${Date.now()}.tar.gz`)
+    const output = fs.createWriteStream(tarPath)
+    const archive = archiver('tar', {
+      gzip: true,
+      gzipOptions: {
+        level: 6 // 压缩级别 (0-9)
+      }
+    })
+    
+    return new Promise((resolve, reject) => {
+      output.on('close', () => {
+        console.log(`压缩完成: ${archive.pointer()} 字节`)
+        resolve({
+          success: true,
+          tarPath: tarPath,
+          zipPath: tarPath, // 为了兼容性，也提供 zipPath 属性
+          size: archive.pointer()
+        })
+      })
+      
+      archive.on('error', (err) => {
+        console.error('压缩失败:', err)
+        reject({
+          success: false,
+          message: err.message
+        })
+      })
+      
+      archive.pipe(output)
+      
+      // 添加整个文件夹到压缩包
+      archive.directory(folderPath, false)
+      
+      archive.finalize()
+    })
+  } catch (error) {
+    console.error('压缩文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
 // IPC 处理器 - 创建 PTY Shell（支持交互式命令）
 let ptyShells = new Map() // 保存 PTY shell 会话
 

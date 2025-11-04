@@ -313,8 +313,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 压缩文件夹（从文件数据）
     compressFolderFromData: (filesData, folderName) => ipcRenderer.invoke('system:compressFolderFromData', { filesData, folderName }),
     
+    // 压缩文件夹（从文件夹路径）
+    compressFolderPath: (options) => ipcRenderer.invoke('system:compressFolderPath', options),
+    
+    // 保存文件到临时目录
+    saveFilesToTemp: (options) => ipcRenderer.invoke('system:saveFilesToTemp', options),
+    
     // 删除文件
-    deleteFile: (filePath) => ipcRenderer.invoke('system:deleteFile', filePath)
+    deleteFile: (filePath) => ipcRenderer.invoke('system:deleteFile', filePath),
+    
+    // 删除文件夹
+    deleteFolder: (folderPath) => ipcRenderer.invoke('system:deleteFolder', folderPath),
+    
+    // 在文件夹中显示文件
+    showItemInFolder: (filePath) => ipcRenderer.invoke('system:showItemInFolder', filePath)
   },
   
   // 打开文件编辑器
