@@ -336,16 +336,19 @@ onMounted(() => {
 }
 
 .file-panel {
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 16px;
   height: 350px;
+  background: var(--bg-secondary);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .file-panel h4 {
   margin: 0 0 16px 0;
-  color: #606266;
+  color: var(--text-primary);
   font-size: 16px;
+  transition: color 0.3s ease;
 }
 
 .file-tree {
@@ -356,14 +359,16 @@ onMounted(() => {
 .transfer-progress {
   margin-top: 20px;
   padding: 16px;
-  background: #f5f7fa;
+  background: var(--bg-secondary);
   border-radius: 6px;
+  transition: background-color 0.3s ease;
 }
 
 .transfer-progress p {
   margin: 8px 0 0 0;
   text-align: center;
-  color: #606266;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
 
 .status-alert {

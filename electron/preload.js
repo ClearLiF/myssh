@@ -70,102 +70,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 终止进程
     killProcess: (connectionId, pid, signal) => ipcRenderer.invoke('ssh:killProcess', connectionId, pid, signal),
     
-    // ==================== Docker 管理 ====================
-    // 获取 Docker 信息
-    getDockerInfo: (connectionId) => ipcRenderer.invoke('ssh:getDockerInfo', connectionId),
-    
-    // 获取 Docker 容器列表
-    getDockerContainers: (connectionId) => ipcRenderer.invoke('ssh:getDockerContainers', connectionId),
-    
-    // 获取 Docker 镜像列表
-    getDockerImages: (connectionId) => ipcRenderer.invoke('ssh:getDockerImages', connectionId),
-    
-    // 获取容器详情
-    getDockerContainerDetail: (connectionId, containerId) => ipcRenderer.invoke('ssh:getDockerContainerDetail', connectionId, containerId),
-    
-    // 获取容器日志
-    getDockerContainerLogs: (connectionId, containerId, tail = 200) => ipcRenderer.invoke('ssh:getDockerContainerLogs', connectionId, containerId, tail),
-
-    // 实时日志流
-    streamDockerContainerLogs: (connectionId, containerId, tail = 200) => ipcRenderer.invoke('ssh:streamDockerContainerLogs', connectionId, containerId, tail),
-
-    // 停止日志流
-    stopDockerLogsStream: (streamId) => ipcRenderer.invoke('ssh:stopDockerLogsStream', streamId),
-
-    // 监听日志流数据
-    onLogsStream: (callback) => {
-      ipcRenderer.on('docker:logs-stream', (event, data) => callback(data))
-    },
-
-    // 监听日志流结束
-    onLogsStreamEnd: (callback) => {
-      ipcRenderer.on('docker:logs-stream-end', (event, data) => callback(data))
-    },
-
-    // 监听日志流错误
-    onLogsStreamError: (callback) => {
-      ipcRenderer.on('docker:logs-stream-error', (event, data) => callback(data))
-    },
-
-    // 移除日志流监听
-    removeLogsStreamListener: () => {
-      ipcRenderer.removeAllListeners('docker:logs-stream')
-    },
-
-    removeLogsStreamEndListener: () => {
-      ipcRenderer.removeAllListeners('docker:logs-stream-end')
-    },
-
-    removeLogsStreamErrorListener: () => {
-      ipcRenderer.removeAllListeners('docker:logs-stream-error')
-    },
-
-    // 启动容器
-    startDockerContainer: (connectionId, containerId) => ipcRenderer.invoke('ssh:startDockerContainer', connectionId, containerId),
-    
-    // 停止容器
-    stopDockerContainer: (connectionId, containerId) => ipcRenderer.invoke('ssh:stopDockerContainer', connectionId, containerId),
-    
-    // 重启容器
-    restartDockerContainer: (connectionId, containerId) => ipcRenderer.invoke('ssh:restartDockerContainer', connectionId, containerId),
-    
-    // 删除容器
-    removeDockerContainer: (connectionId, containerId) => ipcRenderer.invoke('ssh:removeDockerContainer', connectionId, containerId),
-    
-    // 删除镜像
-    removeDockerImage: (connectionId, imageId) => ipcRenderer.invoke('ssh:removeDockerImage', connectionId, imageId),
-    
-    // 拉取镜像
-    pullDockerImage: (connectionId, imageName) => ipcRenderer.invoke('ssh:pullDockerImage', connectionId, imageName),
-    
-    // 创建容器
-    createDockerContainer: (connectionId, containerConfig) => ipcRenderer.invoke('ssh:createDockerContainer', connectionId, containerConfig),
-    
-    // ==================== Systemctl 服务管理 ====================
-    // 获取 systemctl 服务列表
-    getSystemctlServices: (connectionId) => ipcRenderer.invoke('ssh:getSystemctlServices', connectionId),
-    
-    // 获取服务状态
-    getSystemctlServiceStatus: (connectionId, unit) => ipcRenderer.invoke('ssh:getSystemctlServiceStatus', connectionId, unit),
-    
-    // 获取服务日志
-    getSystemctlServiceLogs: (connectionId, unit, lines = 200) => ipcRenderer.invoke('ssh:getSystemctlServiceLogs', connectionId, unit, lines),
-    
-    // 启动服务
-    startSystemctlService: (connectionId, unit) => ipcRenderer.invoke('ssh:startSystemctlService', connectionId, unit),
-    
-    // 停止服务
-    stopSystemctlService: (connectionId, unit) => ipcRenderer.invoke('ssh:stopSystemctlService', connectionId, unit),
-    
-    // 重启服务
-    restartSystemctlService: (connectionId, unit) => ipcRenderer.invoke('ssh:restartSystemctlService', connectionId, unit),
-    
-    // 启用服务（开机自启）
-    enableSystemctlService: (connectionId, unit) => ipcRenderer.invoke('ssh:enableSystemctlService', connectionId, unit),
-    
-    // 禁用服务（取消开机自启）
-    disableSystemctlService: (connectionId, unit) => ipcRenderer.invoke('ssh:disableSystemctlService', connectionId, unit),
-    
     // 获取网络接口列表
     getNetworkInterfaces: (connectionId) => ipcRenderer.invoke('ssh:getNetworkInterfaces', connectionId),
     
@@ -191,7 +95,116 @@ contextBridge.exposeInMainWorld('electronAPI', {
     
     // 手动停止端口转发
     stopTunnel: (connectionId, listenHost, listenPort) => 
-      ipcRenderer.invoke('ssh:stopTunnel', { connectionId, listenHost, listenPort })
+      ipcRenderer.invoke('ssh:stopTunnel', { connectionId, listenHost, listenPort }),
+    
+    // Docker 相关 API
+    // 获取 Docker 信息
+    getDockerInfo: (connectionId) => ipcRenderer.invoke('ssh:getDockerInfo', connectionId),
+    
+    // 获取 Docker 容器列表
+    getDockerContainers: (connectionId) => ipcRenderer.invoke('ssh:getDockerContainers', connectionId),
+    
+    // 获取 Docker 镜像列表
+    getDockerImages: (connectionId) => ipcRenderer.invoke('ssh:getDockerImages', connectionId),
+    
+    // 获取容器详情
+    getDockerContainerDetail: (connectionId, containerId) => 
+      ipcRenderer.invoke('ssh:getDockerContainerDetail', connectionId, containerId),
+    
+    // 获取容器日志
+    getDockerContainerLogs: (connectionId, containerId, tail) => 
+      ipcRenderer.invoke('ssh:getDockerContainerLogs', connectionId, containerId, tail),
+    
+    // 启动实时日志流
+    streamDockerContainerLogs: (connectionId, containerId, tail) => 
+      ipcRenderer.invoke('ssh:streamDockerContainerLogs', connectionId, containerId, tail),
+    
+    // 停止实时日志流
+    stopDockerLogsStream: (streamId) => 
+      ipcRenderer.invoke('ssh:stopDockerLogsStream', streamId),
+    
+    // 监听 Docker 日志流数据
+    onDockerLogsStream: (callback) => {
+      ipcRenderer.on('docker:logs-stream', (event, data) => callback(data))
+    },
+    
+    // 监听 Docker 日志流结束
+    onDockerLogsStreamEnd: (callback) => {
+      ipcRenderer.on('docker:logs-stream-end', (event, data) => callback(data))
+    },
+    
+    // 监听 Docker 日志流错误
+    onDockerLogsStreamError: (callback) => {
+      ipcRenderer.on('docker:logs-stream-error', (event, data) => callback(data))
+    },
+    
+    // 移除 Docker 日志流监听器
+    removeDockerLogsStreamListener: () => {
+      ipcRenderer.removeAllListeners('docker:logs-stream')
+      ipcRenderer.removeAllListeners('docker:logs-stream-end')
+      ipcRenderer.removeAllListeners('docker:logs-stream-error')
+    },
+    
+    // 启动容器
+    startDockerContainer: (connectionId, containerId) => 
+      ipcRenderer.invoke('ssh:startDockerContainer', connectionId, containerId),
+    
+    // 停止容器
+    stopDockerContainer: (connectionId, containerId) => 
+      ipcRenderer.invoke('ssh:stopDockerContainer', connectionId, containerId),
+    
+    // 重启容器
+    restartDockerContainer: (connectionId, containerId) => 
+      ipcRenderer.invoke('ssh:restartDockerContainer', connectionId, containerId),
+    
+    // 删除容器
+    removeDockerContainer: (connectionId, containerId) => 
+      ipcRenderer.invoke('ssh:removeDockerContainer', connectionId, containerId),
+    
+    // 删除镜像
+    removeDockerImage: (connectionId, imageId) => 
+      ipcRenderer.invoke('ssh:removeDockerImage', connectionId, imageId),
+    
+    // 拉取镜像
+    pullDockerImage: (connectionId, imageName) => 
+      ipcRenderer.invoke('ssh:pullDockerImage', connectionId, imageName),
+    
+    // 创建容器
+    createDockerContainer: (connectionId, containerConfig) => 
+      ipcRenderer.invoke('ssh:createDockerContainer', connectionId, containerConfig),
+    
+    // Systemctl 服务管理 API
+    // 获取服务列表
+    getSystemctlServices: (connectionId) => 
+      ipcRenderer.invoke('ssh:getSystemctlServices', connectionId),
+    
+    // 获取服务状态
+    getSystemctlServiceStatus: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:getSystemctlServiceStatus', connectionId, unit),
+    
+    // 获取服务日志
+    getSystemctlServiceLogs: (connectionId, unit, lines) => 
+      ipcRenderer.invoke('ssh:getSystemctlServiceLogs', connectionId, unit, lines),
+    
+    // 启动服务
+    startSystemctlService: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:startSystemctlService', connectionId, unit),
+    
+    // 停止服务
+    stopSystemctlService: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:stopSystemctlService', connectionId, unit),
+    
+    // 重启服务
+    restartSystemctlService: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:restartSystemctlService', connectionId, unit),
+    
+    // 启用服务（开机自启）
+    enableSystemctlService: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:enableSystemctlService', connectionId, unit),
+    
+    // 禁用服务（取消开机自启）
+    disableSystemctlService: (connectionId, unit) => 
+      ipcRenderer.invoke('ssh:disableSystemctlService', connectionId, unit)
   },
   
   // SFTP 相关 API
@@ -289,7 +302,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     versions: process.versions,
     
     // 获取环境变量
-    env: process.env
+    env: process.env,
+    
+    // 打开文件夹
+    openFolder: (folderPath) => ipcRenderer.invoke('system:openFolder', { folderPath }),
+    
+    // 压缩文件夹（从文件路径）
+    compressFolder: (files, folderName) => ipcRenderer.invoke('system:compressFolder', { files, folderName }),
+    
+    // 压缩文件夹（从文件数据）
+    compressFolderFromData: (filesData, folderName) => ipcRenderer.invoke('system:compressFolderFromData', { filesData, folderName }),
+    
+    // 删除文件
+    deleteFile: (filePath) => ipcRenderer.invoke('system:deleteFile', filePath)
   },
   
   // 打开文件编辑器
@@ -311,7 +336,16 @@ contextBridge.exposeInMainWorld('connectionAPI', {
   loadConnections: () => ipcRenderer.invoke('connections:load'),
   
   // 获取连接文件路径
-  getConnectionsPath: () => ipcRenderer.invoke('connections:getPath')
+  getConnectionsPath: () => ipcRenderer.invoke('connections:getPath'),
+  
+  // 检查是否首次运行
+  isFirstRun: () => ipcRenderer.invoke('connections:isFirstRun'),
+  
+  // 选择连接配置保存路径
+  selectPath: () => ipcRenderer.invoke('connections:selectPath'),
+  
+  // 设置连接配置保存路径
+  setPath: (path) => ipcRenderer.invoke('connections:setPath', { path })
 })
 
 // 监听来自主进程的消息

@@ -34,6 +34,9 @@ importers:
       hterm-umd:
         specifier: ^1.0.1
         version: 1.0.1
+      is-stream:
+        specifier: ^2.0.1
+        version: 2.0.1
       node-ssh:
         specifier: ^13.1.0
         version: 13.2.1

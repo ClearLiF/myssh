@@ -256,8 +256,25 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { Plus, Monitor } from '@element-plus/icons-vue'
+
+// 简单的提示函数，使用终端显示而不是弹窗
+const showMessage = (message, type = 'info') => {
+  const typeMap = {
+    success: '✅',
+    error: '❌',
+    warning: '⚠️',
+    info: 'ℹ️'
+  }
+  const icon = typeMap[type] || 'ℹ️'
+  addTerminalLine({
+    type: 'system',
+    content: `${icon} ${message}`,
+    timestamp: new Date()
+  })
+  console.log(`[${type.toUpperCase()}] ${message}`)
+}
 
 // SSH 配置
 const sshConfig = ref({
@@ -364,7 +381,7 @@ const connectSSH = async () => {
         
         currentPrompt.value = `${sshConfig.value.username}@${sshConfig.value.host}:~$ `
         
-        ElMessage.success('SSH 连接成功！')
+        showMessage('SSH 连接成功！', 'success')
         connectionStatus.value = {
           title: '连接成功',
           type: 'success',
@@ -389,7 +406,7 @@ const connectSSH = async () => {
         timestamp: new Date()
       })
       
-      ElMessage.success('SSH 连接成功！（模拟模式）')
+      showMessage('SSH 连接成功！（模拟模式）', 'success')
       connectionStatus.value = {
         title: '连接成功',
         type: 'success',
@@ -405,7 +422,7 @@ const connectSSH = async () => {
       type: 'error',
       description: error.message || '无法连接到远程主机'
     }
-    ElMessage.error(`SSH 连接失败: ${error.message}`)
+    showMessage(`SSH 连接失败: ${error.message}`, 'error')
   } finally {
     connecting.value = false
   }
@@ -434,9 +451,9 @@ const disconnectSSH = async () => {
       description: 'SSH 连接已断开'
     }
     
-    ElMessage.info('SSH 连接已断开')
+    showMessage('SSH 连接已断开', 'info')
   } catch (error) {
-    ElMessage.error('断开连接时发生错误')
+    showMessage('断开连接时发生错误', 'error')
   }
 }
 
@@ -654,20 +671,20 @@ const saveSavedConnections = async () => {
       
       const result = await window.connectionAPI.saveConnections(serializedConnections)
       if (result.success) {
-        ElMessage.success('连接配置已保存')
+        showMessage('连接配置已保存', 'success')
         console.log('连接配置已保存')
       } else {
         console.error('保存连接配置失败:', result.message)
-        ElMessage.error('保存配置失败: ' + result.message)
+        showMessage('保存配置失败: ' + result.message, 'error')
       }
     } else {
       // 降级到 localStorage
       localStorage.setItem('ssh-connections', JSON.stringify(savedConnections.value))
-      ElMessage.success('连接配置已保存')
+      showMessage('连接配置已保存', 'success')
     }
   } catch (error) {
     console.error('保存连接配置失败:', error)
-    ElMessage.error('保存配置失败')
+    showMessage('保存配置失败', 'error')
   }
 }
 
@@ -699,7 +716,7 @@ const showNewConnectionDialog = async () => {
       saveSavedConnections()
       currentConnectionIndex.value = savedConnections.value.length - 1
       Object.assign(sshConfig.value, newConnection)
-      ElMessage.success('连接已创建，请配置连接信息')
+      showMessage('连接已创建，请配置连接信息', 'success')
     }
   } catch {
     // 用户取消
@@ -709,7 +726,7 @@ const showNewConnectionDialog = async () => {
 // 选择连接
 const selectConnection = (index) => {
   if (isConnected.value) {
-    ElMessage.warning('请先断开当前连接')
+    showMessage('请先断开当前连接', 'warning')
     return
   }
   
@@ -721,7 +738,7 @@ const selectConnection = (index) => {
 // 快速连接
 const quickConnect = async (index) => {
   if (isConnected.value) {
-    ElMessage.warning('请先断开当前连接')
+    showMessage('请先断开当前连接', 'warning')
     return
   }
   
@@ -736,7 +753,7 @@ const editConnection = (index) => {
   currentConnectionIndex.value = index
   const connection = savedConnections.value[index]
   Object.assign(sshConfig.value, connection)
-  ElMessage.info('请在下方配置区域修改连接信息')
+  showMessage('请在下方配置区域修改连接信息', 'info')
 }
 
 // 删除连接
@@ -770,7 +787,7 @@ const deleteConnection = async (index) => {
       currentConnectionIndex.value--
     }
     
-    ElMessage.success('连接已删除')
+    showMessage('连接已删除', 'success')
   } catch {
     // 用户取消
   }
@@ -782,7 +799,7 @@ const saveConnection = () => {
     // 更新现有连接
     Object.assign(savedConnections.value[currentConnectionIndex.value], sshConfig.value)
     saveSavedConnections()
-    ElMessage.success('连接配置已更新')
+    showMessage('连接配置已更新', 'success')
   } else {
     // 保存为新连接
     ElMessageBox.prompt(
@@ -803,7 +820,7 @@ const saveConnection = () => {
       savedConnections.value.push(config)
       saveSavedConnections()
       currentConnectionIndex.value = savedConnections.value.length - 1
-      ElMessage.success('连接配置已保存')
+      showMessage('连接配置已保存', 'success')
     }).catch(() => {
       // 用户取消
     })
@@ -813,7 +830,7 @@ const saveConnection = () => {
 // 加载连接配置（保留用于兼容）
 const loadConnection = async () => {
   if (savedConnections.value.length === 0) {
-    ElMessage.info('没有保存的连接配置')
+    showMessage('没有保存的连接配置', 'info')
     return
   }
   
@@ -836,7 +853,7 @@ const loadConnection = async () => {
     if (selected) {
       currentConnectionIndex.value = parseInt(selectedIndex)
       Object.assign(sshConfig.value, selected)
-      ElMessage.success('配置已加载')
+      showMessage('配置已加载', 'success')
     }
   } catch {
     // 用户取消
@@ -857,13 +874,13 @@ const selectPrivateKey = async () => {
       
       if (result.success) {
         sshConfig.value.privateKeyPath = result.filePath
-        ElMessage.success('私钥文件已选择')
+        showMessage('私钥文件已选择', 'success')
       }
     } catch (error) {
-      ElMessage.error('选择文件失败')
+      showMessage('选择文件失败', 'error')
     }
   } else {
-    ElMessage.info('私钥文件选择功能需要在 Electron 环境中使用')
+    showMessage('私钥文件选择功能需要在 Electron 环境中使用', 'info')
   }
 }
 

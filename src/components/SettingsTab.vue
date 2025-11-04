@@ -7,8 +7,33 @@
         </div>
       </template>
 
-      <!-- 下载位置设置 -->
-      <el-form :model="settings" label-width="120px">
+      <!-- 连接配置保存位置 -->
+      <el-form :model="settings" label-width="150px">
+        <el-form-item label="连接配置保存位置">
+          <div class="path-input-group">
+            <el-input 
+              v-model="settings.connectionsPath" 
+              readonly
+              placeholder="连接配置保存位置"
+              class="path-input"
+            />
+            <el-button type="primary" @click="selectConnectionsPath">
+              <el-icon><Edit /></el-icon>
+              选择
+            </el-button>
+            <el-button @click="openConnectionsFolder">
+              <el-icon><Folder /></el-icon>
+              打开
+            </el-button>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="说明">
+          <el-text type="info">SSH 连接配置文件 (connections.json) 的保存位置</el-text>
+        </el-form-item>
+
+        <el-divider />
+
         <el-form-item label="下载位置">
           <div class="path-input-group">
             <el-input 
@@ -28,8 +53,8 @@
           </div>
         </el-form-item>
 
-        <el-form-item label="默认下载">
-          <el-text type="info">文件将下载到上述位置</el-text>
+        <el-form-item label="说明">
+          <el-text type="info">SFTP 文件下载的默认保存位置</el-text>
         </el-form-item>
 
         <el-divider />
@@ -152,6 +177,7 @@ import { ElMessage } from 'element-plus'
 import { Folder, Edit } from '@element-plus/icons-vue'
 
 const settings = ref({
+  connectionsPath: '', // 连接配置保存路径
   downloadPath: '',
   tempPath: '',
   editorPath: '',
@@ -162,6 +188,17 @@ const settings = ref({
 // 加载设置
 const loadSettings = async () => {
   try {
+    // 加载连接配置路径
+    if (window.connectionAPI) {
+      const connectionsPathResult = await window.connectionAPI.getConnectionsPath()
+      if (connectionsPathResult.success) {
+        // 提取目录路径（去掉文件名）
+        const path = connectionsPathResult.path
+        const dirPath = path.substring(0, path.lastIndexOf('/'))
+        settings.value.connectionsPath = dirPath
+      }
+    }
+    
     if (window.electronAPI && window.electronAPI.settings) {
       const result = await window.electronAPI.settings.getDownloadPath()
       if (result.success) {
@@ -186,6 +223,45 @@ const loadSettings = async () => {
     }
   } catch (error) {
     console.error('加载设置失败:', error)
+  }
+}
+
+// 选择连接配置保存路径
+const selectConnectionsPath = async () => {
+  try {
+    if (window.connectionAPI) {
+      const result = await window.connectionAPI.selectPath()
+      if (result.success && result.path) {
+        settings.value.connectionsPath = result.path
+        ElMessage.success('连接配置保存位置已更新')
+        // 重新加载设置以确保路径正确
+        await loadSettings()
+      }
+    }
+  } catch (error) {
+    ElMessage.error('选择位置失败: ' + error.message)
+  }
+}
+
+// 打开连接配置文件夹
+const openConnectionsFolder = async () => {
+  try {
+    if (!settings.value.connectionsPath) {
+      ElMessage.warning('连接配置保存位置未设置')
+      return
+    }
+    
+    if (window.electronAPI && window.electronAPI.system && window.electronAPI.system.openFolder) {
+      const result = await window.electronAPI.system.openFolder(settings.value.connectionsPath)
+      if (!result.success) {
+        ElMessage.error('打开文件夹失败: ' + result.message)
+      }
+    } else {
+      ElMessage.error('系统 API 不可用')
+    }
+  } catch (error) {
+    console.error('打开文件夹失败:', error)
+    ElMessage.error('打开文件夹失败: ' + error.message)
   }
 }
 
@@ -252,32 +328,44 @@ const selectEditor = async () => {
 // 打开下载文件夹
 const openDownloadFolder = async () => {
   try {
-    if (settings.value.downloadPath) {
-      const { shell } = require('electron')
-      if (window.electronAPI) {
-        // 在 Electron 中使用
-        const exec = require('child_process').exec
-        exec(`open "${settings.value.downloadPath}"`)
+    if (!settings.value.downloadPath) {
+      ElMessage.warning('下载位置未设置')
+      return
+    }
+    
+    if (window.electronAPI && window.electronAPI.system && window.electronAPI.system.openFolder) {
+      const result = await window.electronAPI.system.openFolder(settings.value.downloadPath)
+      if (!result.success) {
+        ElMessage.error('打开文件夹失败: ' + result.message)
       }
+    } else {
+      ElMessage.error('系统 API 不可用')
     }
   } catch (error) {
     console.error('打开文件夹失败:', error)
+    ElMessage.error('打开文件夹失败: ' + error.message)
   }
 }
 
 // 打开临时文件夹
 const openTempFolder = async () => {
   try {
-    if (settings.value.tempPath) {
-      const { shell } = require('electron')
-      if (window.electronAPI) {
-        // 在 Electron 中使用
-        const exec = require('child_process').exec
-        exec(`open "${settings.value.tempPath}"`)
+    if (!settings.value.tempPath) {
+      ElMessage.warning('临时文件目录未设置')
+      return
+    }
+    
+    if (window.electronAPI && window.electronAPI.system && window.electronAPI.system.openFolder) {
+      const result = await window.electronAPI.system.openFolder(settings.value.tempPath)
+      if (!result.success) {
+        ElMessage.error('打开文件夹失败: ' + result.message)
       }
+    } else {
+      ElMessage.error('系统 API 不可用')
     }
   } catch (error) {
     console.error('打开文件夹失败:', error)
+    ElMessage.error('打开文件夹失败: ' + error.message)
   }
 }
 

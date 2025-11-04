@@ -81,6 +81,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import HostsList from './components/HostsList.vue'
 import ConnectionTab from './components/ConnectionTab.vue'
 import SFTPManagerTab from './components/SFTPManagerTab.vue'
@@ -94,6 +95,54 @@ import SystemctlManagerTab from './components/SystemctlManagerTab.vue'
 const openTabs = ref([])
 const activeTabName = ref('hosts') // 默认激活 Hosts 标签页
 let tabIndex = 0
+
+// 检查首次运行并设置保存路径
+const checkFirstRun = async () => {
+  try {
+    if (!window.connectionAPI) {
+      console.log('connectionAPI 不可用，跳过首次运行检查')
+      return
+    }
+
+    const result = await window.connectionAPI.isFirstRun()
+    
+    if (result.success && result.isFirstRun) {
+      console.log('检测到首次运行，提示用户选择保存位置')
+      
+      // 显示欢迎对话框
+      await ElMessageBox.confirm(
+        `欢迎使用 MySSH！\n\n首次运行需要设置 SSH 连接配置的保存位置。\n\n默认保存位置：\n${result.defaultPath}\n\n您可以选择默认位置，或者自定义保存位置。`,
+        '首次运行设置',
+        {
+          confirmButtonText: '自定义位置',
+          cancelButtonText: '使用默认位置',
+          type: 'info',
+          distinguishCancelAndClose: true,
+          closeOnClickModal: false,
+          closeOnPressEscape: false
+        }
+      ).then(async () => {
+        // 用户选择自定义位置
+        const pathResult = await window.connectionAPI.selectPath()
+        if (pathResult.success) {
+          ElMessage.success(`已设置保存位置：${pathResult.path}`)
+        } else {
+          ElMessage.warning('未选择路径，将使用默认位置')
+        }
+      }).catch(async (action) => {
+        // 用户选择使用默认位置或关闭对话框
+        if (action === 'cancel') {
+          // 设置默认路径（其实不用手动设置，后端会自动使用默认路径）
+          ElMessage.success(`已使用默认保存位置`)
+          // 调用一次 setPath 来标记不再是首次运行
+          await window.connectionAPI.setPath(result.defaultPath + '/connections')
+        }
+      })
+    }
+  } catch (error) {
+    console.error('检查首次运行状态失败:', error)
+  }
+}
 
 // 加载主题设置
 const loadTheme = async () => {
@@ -120,9 +169,13 @@ const applyTheme = (theme) => {
   }
 }
 
-// 在组件挂载时加载主题
-onMounted(() => {
-  loadTheme()
+// 在组件挂载时加载主题和检查首次运行
+onMounted(async () => {
+  await loadTheme()
+  // 延迟检查首次运行，确保 UI 已经渲染
+  setTimeout(() => {
+    checkFirstRun()
+  }, 500)
 })
 
 // 处理打开连接

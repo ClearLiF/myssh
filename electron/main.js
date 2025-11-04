@@ -992,6 +992,192 @@ ipcMain.handle('settings:setTerminalFontSize', async (event, { fontSize }) => {
   }
 })
 
+// IPC 处理器 - 打开文件夹
+ipcMain.handle('system:openFolder', async (event, { folderPath }) => {
+  try {
+    if (!folderPath) {
+      throw new Error('文件夹路径不能为空')
+    }
+    
+    const { shell } = require('electron')
+    
+    // 使用 shell.openPath 打开文件夹（跨平台）
+    const result = await shell.openPath(folderPath)
+    
+    if (result) {
+      // 如果有返回值，说明打开失败
+      console.error('打开文件夹失败:', result)
+      return {
+        success: false,
+        message: result
+      }
+    }
+    
+    console.log('文件夹已打开:', folderPath)
+    return {
+      success: true,
+      message: '文件夹已打开'
+    }
+  } catch (error) {
+    console.error('打开文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 压缩文件夹（从文件路径）
+ipcMain.handle('system:compressFolder', async (event, { files, folderName }) => {
+  try {
+    const archiver = require('archiver')
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    
+    // 创建临时目录
+    const tempDir = path.join(os.tmpdir(), 'myssh-uploads')
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true })
+    }
+    
+    // 生成临时 ZIP 文件路径
+    const zipPath = path.join(tempDir, `${folderName}_${Date.now()}.zip`)
+    const output = fs.createWriteStream(zipPath)
+    const archive = archiver('zip', {
+      zlib: { level: 6 } // 压缩级别 (0-9)
+    })
+    
+    return new Promise((resolve, reject) => {
+      output.on('close', () => {
+        console.log(`压缩完成: ${archive.pointer()} 字节`)
+        resolve({
+          success: true,
+          zipPath: zipPath,
+          size: archive.pointer()
+        })
+      })
+      
+      archive.on('error', (err) => {
+        console.error('压缩失败:', err)
+        reject(err)
+      })
+      
+      archive.pipe(output)
+      
+      // 添加文件到压缩包
+      files.forEach((file) => {
+        if (file.path) {
+          // Electron 环境中的文件对象
+          const fileName = file.relativePath || file.name
+          archive.file(file.path, { name: fileName })
+        } else if (typeof file === 'string') {
+          // 文件路径字符串
+          const fileName = path.basename(file)
+          archive.file(file, { name: fileName })
+        }
+      })
+      
+      archive.finalize()
+    })
+  } catch (error) {
+    console.error('压缩文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 压缩文件夹（从文件数据）
+ipcMain.handle('system:compressFolderFromData', async (event, { filesData, folderName }) => {
+  try {
+    const archiver = require('archiver')
+    const os = require('os')
+    const path = require('path')
+    const fs = require('fs')
+    
+    console.log(`开始压缩文件夹: ${folderName}，包含 ${filesData.length} 个文件`)
+    
+    // 创建临时目录
+    const tempDir = path.join(os.tmpdir(), 'myssh-uploads')
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true })
+    }
+    
+    // 生成临时 ZIP 文件路径
+    const zipPath = path.join(tempDir, `${folderName}_${Date.now()}.zip`)
+    const output = fs.createWriteStream(zipPath)
+    const archive = archiver('zip', {
+      zlib: { level: 6 } // 压缩级别 (0-9)
+    })
+    
+    return new Promise((resolve, reject) => {
+      output.on('close', () => {
+        console.log(`压缩完成: ${archive.pointer()} 字节，保存到: ${zipPath}`)
+        resolve({
+          success: true,
+          zipPath: zipPath,
+          size: archive.pointer()
+        })
+      })
+      
+      archive.on('error', (err) => {
+        console.error('压缩失败:', err)
+        reject({
+          success: false,
+          message: err.message
+        })
+      })
+      
+      archive.pipe(output)
+      
+      // 添加文件到压缩包（从 buffer 数据）
+      filesData.forEach((fileData) => {
+        const buffer = Buffer.from(fileData.buffer)
+        const fileName = fileData.relativePath || fileData.name
+        console.log(`  添加文件: ${fileName} (${fileData.size} 字节)`)
+        archive.append(buffer, { name: fileName })
+      })
+      
+      archive.finalize()
+    })
+  } catch (error) {
+    console.error('压缩文件夹失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 删除文件
+ipcMain.handle('system:deleteFile', async (event, filePath) => {
+  try {
+    const fs = require('fs')
+    
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath)
+      console.log(`已删除临时文件: ${filePath}`)
+      return {
+        success: true,
+        message: '文件已删除'
+      }
+    }
+    
+    return {
+      success: true,
+      message: '文件不存在'
+    }
+  } catch (error) {
+    console.error('删除文件失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
 // IPC 处理器 - 创建 PTY Shell（支持交互式命令）
 let ptyShells = new Map() // 保存 PTY shell 会话
 
@@ -1371,8 +1557,18 @@ ipcMain.handle('file:watch', async (event, { filePath }) => {
 
 // 连接配置文件路径
 const getConnectionsFilePath = () => {
-  const appPath = app.getAppPath()
-  const connectionsDir = path.join(appPath, 'connections')
+  // 获取用户自定义的保存路径，如果没有则使用默认的 userData 目录
+  let customPath = store.get('connectionsPath', '')
+  
+  let connectionsDir
+  if (customPath && fs.existsSync(customPath)) {
+    // 使用用户自定义路径
+    connectionsDir = customPath
+  } else {
+    // 使用默认的 userData 目录（打包后可写）
+    const userDataPath = app.getPath('userData')
+    connectionsDir = path.join(userDataPath, 'connections')
+  }
   
   // 确保目录存在
   if (!fs.existsSync(connectionsDir)) {
@@ -1394,6 +1590,89 @@ ipcMain.handle('connections:getPath', async (event) => {
     console.error('获取连接文件路径失败:', error)
     return {
       success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 设置连接文件保存路径
+ipcMain.handle('connections:setPath', async (event, { path: newPath }) => {
+  try {
+    // 验证路径是否存在
+    if (!fs.existsSync(newPath)) {
+      fs.mkdirSync(newPath, { recursive: true })
+    }
+    
+    // 保存新路径到配置
+    store.set('connectionsPath', newPath)
+    console.log(`连接文件保存路径已更新为: ${newPath}`)
+    
+    return {
+      success: true,
+      message: '保存路径已更新',
+      path: newPath
+    }
+  } catch (error) {
+    console.error('设置连接文件保存路径失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 选择连接文件保存路径
+ipcMain.handle('connections:selectPath', async (event) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      title: '选择连接配置保存位置',
+      buttonLabel: '选择',
+      message: '请选择一个文件夹来保存 SSH 连接配置'
+    })
+    
+    if (!result.canceled && result.filePaths.length > 0) {
+      const selectedPath = result.filePaths[0]
+      
+      // 保存选择的路径
+      store.set('connectionsPath', selectedPath)
+      console.log(`用户选择了连接文件保存路径: ${selectedPath}`)
+      
+      return {
+        success: true,
+        path: selectedPath
+      }
+    } else {
+      return {
+        success: false,
+        message: '用户取消了选择'
+      }
+    }
+  } catch (error) {
+    console.error('选择连接文件保存路径失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 检查是否是第一次运行
+ipcMain.handle('connections:isFirstRun', async (event) => {
+  try {
+    const customPath = store.get('connectionsPath', '')
+    const isFirstRun = !customPath
+    
+    return {
+      success: true,
+      isFirstRun: isFirstRun,
+      defaultPath: app.getPath('userData')
+    }
+  } catch (error) {
+    console.error('检查首次运行状态失败:', error)
+    return {
+      success: false,
+      isFirstRun: true,
       message: error.message
     }
   }

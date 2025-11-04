@@ -317,6 +317,7 @@ const handleDragLeave = () => {
 // 处理拖放的文件和文件夹
 const processDroppedItems = async (items) => {
   const filesToUpload = []
+  const folders = []
   
   const processEntry = async (entry, path = '') => {
     if (entry.isFile) {
@@ -326,6 +327,13 @@ const processDroppedItems = async (items) => {
       file.fullPath = path + file.name
       filesToUpload.push(file)
     } else if (entry.isDirectory) {
+      // 记录文件夹信息
+      folders.push({
+        name: entry.name,
+        entry: entry,
+        path: path
+      })
+      
       const dirReader = entry.createReader()
       const entries = await new Promise((resolve, reject) => {
         dirReader.readEntries(resolve, reject)
@@ -346,15 +354,49 @@ const processDroppedItems = async (items) => {
     }
   }
   
-  return filesToUpload
+  return { filesToUpload, folders }
 }
 
 const handleDrop = async (event) => {
   const items = event.dataTransfer.items
   if (items.length > 0) {
     try {
-      const filesToUpload = await processDroppedItems(Array.from(items))
-      if (filesToUpload.length > 0) {
+      const { filesToUpload, folders } = await processDroppedItems(Array.from(items))
+      
+      // 如果包含文件夹，询问是否压缩上传
+      if (folders.length > 0) {
+        const action = await ElMessageBox.confirm(
+          `检测到 ${folders.length} 个文件夹。\n\n压缩上传：先压缩为 ZIP，上传后自动解压（速度更快）\n直接上传：保持原始文件结构上传（可能较慢）`,
+          '文件夹上传方式',
+          {
+            confirmButtonText: '压缩上传',
+            cancelButtonText: '直接上传',
+            distinguishCancelAndClose: true,
+            type: 'info'
+          }
+        ).then(() => 'compress').catch((action) => {
+          if (action === 'cancel') {
+            return 'direct'
+          }
+          return 'cancel'
+        })
+        
+        if (action === 'cancel') {
+          isDraggingOver.value = false
+          return
+        }
+        
+        if (action === 'compress') {
+          // 压缩上传
+          await uploadFoldersCompressed(folders)
+        } else {
+          // 直接上传
+          if (filesToUpload.length > 0) {
+            uploadFiles(filesToUpload)
+          }
+        }
+      } else if (filesToUpload.length > 0) {
+        // 只有文件，直接上传
         uploadFiles(filesToUpload)
       }
     } catch (error) {
@@ -388,6 +430,150 @@ const copyPath = (file) => {
   }).catch(() => {
     ElMessage.error('复制路径失败')
   })
+}
+
+// 压缩上传文件夹
+const uploadFoldersCompressed = async (folders) => {
+  if (!props.connectionId || !window.electronAPI) {
+    ElMessage.warning('请先建立 SSH 连接')
+    return
+  }
+
+  // 初始化上传进度
+  uploadingFiles.value = folders.map(folder => ({
+    name: folder.name,
+    percentage: 0,
+    status: 'info',
+    statusText: '准备压缩...'
+  }))
+  uploadDialogVisible.value = true
+
+  let successCount = 0
+  let errorCount = 0
+
+  for (let i = 0; i < folders.length; i++) {
+    const folder = folders[i]
+    try {
+      // 1. 收集文件夹中的所有文件
+      uploadingFiles.value[i].statusText = '收集文件...'
+      const allFiles = []
+      
+      const collectFiles = async (entry, basePath = '') => {
+        if (entry.isFile) {
+          const file = await new Promise((resolve, reject) => {
+            entry.file(resolve, reject)
+          })
+          file.relativePath = basePath + file.name
+          allFiles.push(file)
+        } else if (entry.isDirectory) {
+          const dirReader = entry.createReader()
+          const entries = await new Promise((resolve, reject) => {
+            dirReader.readEntries(resolve, reject)
+          })
+          for (const subEntry of entries) {
+            await collectFiles(subEntry, basePath + entry.name + '/')
+          }
+        }
+      }
+      
+      await collectFiles(folder.entry)
+      
+      if (allFiles.length === 0) {
+        uploadingFiles.value[i].status = 'warning'
+        uploadingFiles.value[i].statusText = '文件夹为空'
+        continue
+      }
+
+      // 2. 将文件转换为可传输的格式（读取文件内容）
+      uploadingFiles.value[i].statusText = '正在读取文件...'
+      uploadingFiles.value[i].percentage = 10
+      
+      const filesData = []
+      for (const file of allFiles) {
+        const arrayBuffer = await file.arrayBuffer()
+        filesData.push({
+          name: file.name,
+          relativePath: file.relativePath,
+          buffer: Array.from(new Uint8Array(arrayBuffer)),
+          size: file.size
+        })
+      }
+      
+      // 3. 压缩文件夹
+      uploadingFiles.value[i].statusText = '正在压缩...'
+      uploadingFiles.value[i].percentage = 20
+      
+      const zipResult = await window.electronAPI.system.compressFolderFromData(
+        filesData,
+        folder.name
+      )
+      
+      if (!zipResult.success) {
+        throw new Error(zipResult.message || '压缩失败')
+      }
+      
+      uploadingFiles.value[i].percentage = 40
+      uploadingFiles.value[i].statusText = '正在上传压缩包...'
+
+      // 3. 上传压缩文件
+      const remoteZipPath = `${currentPath.value}/${folder.name}.zip`.replace('//', '/')
+      const uploadResult = await window.electronAPI.sftp.upload(
+        props.connectionId,
+        zipResult.zipPath,
+        remoteZipPath
+      )
+
+      if (!uploadResult.success) {
+        throw new Error(uploadResult.message || '上传失败')
+      }
+
+      uploadingFiles.value[i].percentage = 70
+      uploadingFiles.value[i].statusText = '正在解压缩...'
+
+      // 4. 在远程服务器解压
+      const extractResult = await window.electronAPI.ssh.execute(
+        props.connectionId,
+        `cd ${currentPath.value} && unzip -o "${folder.name}.zip" && rm "${folder.name}.zip"`
+      )
+
+      if (!extractResult.success) {
+        throw new Error('解压失败: ' + extractResult.message)
+      }
+
+      uploadingFiles.value[i].percentage = 90
+      uploadingFiles.value[i].statusText = '清理临时文件...'
+
+      // 5. 删除本地临时压缩文件
+      if (window.electronAPI.system.deleteFile) {
+        await window.electronAPI.system.deleteFile(zipResult.zipPath)
+      }
+
+      uploadingFiles.value[i].percentage = 100
+      uploadingFiles.value[i].status = 'success'
+      uploadingFiles.value[i].statusText = '上传成功'
+      successCount++
+
+    } catch (error) {
+      errorCount++
+      uploadingFiles.value[i].status = 'exception'
+      uploadingFiles.value[i].statusText = `失败: ${error.message}`
+      console.error('压缩上传失败:', error)
+    }
+  }
+
+  // 上传完成后刷新文件列表
+  if (successCount > 0) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    loadFiles()
+  }
+
+  // 2秒后自动关闭进度对话框
+  if (errorCount === 0) {
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    uploadDialogVisible.value = false
+  }
+
+  ElMessage.success(`压缩上传完成: 成功 ${successCount} 个，失败 ${errorCount} 个`)
 }
 
 // 上传文件（拖放或点击上传）
@@ -484,23 +670,55 @@ const uploadFiles = async (filesToUpload) => {
   ElMessage.success(`上传完成: 成功 ${successCount} 个，失败 ${errorCount} 个`)
 }
 
-// 删除文件
+// 删除文件或文件夹
 const deleteFile = async (file) => {
   try {
+    const itemType = file.isDirectory ? '文件夹' : '文件'
     await ElMessageBox.confirm(
-      `确定要删除 "${file.name}" 吗？`,
+      `确定要删除${itemType} "${file.name}" 吗？${file.isDirectory ? '\n\n注意：文件夹及其所有内容都将被删除！' : ''}`,
       '确认删除',
       {
         confirmButtonText: '删除',
         cancelButtonText: '取消',
-        type: 'warning'
+        type: 'warning',
+        dangerouslyUseHTMLString: false
       }
     )
     
-    ElMessage.success(`已删除: ${file.name}`)
-    loadFiles()
-  } catch {
-    // 用户取消
+    if (!props.connectionId || !window.electronAPI) {
+      ElMessage.error('SSH 连接不可用')
+      return
+    }
+
+    const itemPath = file.fullPath || `${currentPath.value}/${file.name}`.replace('//', '/')
+    
+    // 根据是文件还是文件夹使用不同的删除命令
+    let deleteCommand
+    if (file.isDirectory) {
+      // 删除文件夹及其所有内容
+      deleteCommand = `rm -rf "${itemPath}"`
+    } else {
+      // 删除文件
+      deleteCommand = `rm -f "${itemPath}"`
+    }
+
+    const result = await window.electronAPI.ssh.execute(
+      props.connectionId,
+      deleteCommand
+    )
+
+    if (result.success) {
+      ElMessage.success(`已删除: ${file.name}`)
+      // 刷新文件列表
+      await loadFiles()
+    } else {
+      throw new Error(result.message || '删除失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      // 如果不是用户取消，显示错误消息
+      ElMessage.error(`删除失败: ${error.message || error}`)
+    }
   }
 }
 
@@ -689,7 +907,8 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #161b22 0%, #1a1f26 100%);
+  background: var(--bg-primary);
+  transition: background-color 0.3s ease;
 }
 
 .sftp-toolbar {
@@ -697,11 +916,12 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 20px;
-  background: linear-gradient(135deg, rgba(22, 27, 34, 0.95) 0%, rgba(26, 31, 38, 0.95) 100%);
+  background: var(--bg-secondary);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(48, 54, 61, 0.5);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px var(--shadow-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .toolbar-left {
@@ -714,15 +934,17 @@ onUnmounted(() => {
 }
 
 .toolbar-left :deep(.el-breadcrumb__item) {
-  color: #cccccc;
+  color: var(--text-primary);
+  transition: color 0.3s ease;
 }
 
 .path-item {
   cursor: pointer;
+  transition: color 0.2s ease;
 }
 
 .path-item:hover {
-  color: #409eff;
+  color: var(--accent-color);
 }
 
 .toolbar-right {
@@ -733,7 +955,7 @@ onUnmounted(() => {
 .files-container {
   flex: 1;
   overflow: hidden;
-  position: relative; /* 新增：用于定位拖放提示 */
+  position: relative;
 }
 
 .files-table {
@@ -759,13 +981,14 @@ onUnmounted(() => {
 
 .files-table :deep(.el-table__header th) {
   background: transparent !important;
-  color: #8b949e !important;
-  border-color: rgba(48, 54, 61, 0.3) !important;
+  color: var(--text-secondary) !important;
+  border-color: var(--border-color-light) !important;
   font-weight: 600;
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   padding: 8px 12px;
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
 
 .files-table :deep(.el-table__body) {
@@ -774,20 +997,21 @@ onUnmounted(() => {
 
 .files-table :deep(.el-table__body tr) {
   background: transparent !important;
-  color: #c9d1d9 !important;
+  color: var(--text-primary) !important;
   transition: all 0.2s;
 }
 
 .files-table :deep(.el-table__body tr:hover > td) {
-  background: rgba(102, 126, 234, 0.08) !important;
+  background: var(--hover-bg) !important;
   cursor: pointer;
 }
 
 .files-table :deep(.el-table__body td) {
   background: transparent !important;
-  border-color: rgba(48, 54, 61, 0.3) !important;
+  border-color: var(--border-color-light) !important;
   padding: 8px 12px;
-  color: #c9d1d9 !important;
+  color: var(--text-primary) !important;
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
 
 .files-table :deep(.el-table__empty-block) {
@@ -795,7 +1019,8 @@ onUnmounted(() => {
 }
 
 .files-table :deep(.el-loading-mask) {
-  background: rgba(22, 27, 34, 0.8) !important;
+  background: var(--bg-primary) !important;
+  opacity: 0.8;
 }
 
 .file-name {
@@ -821,7 +1046,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(22, 27, 34, 0.3);
+  background: var(--bg-secondary);
+  transition: background-color 0.3s ease;
 }
 
 .toolbar-left :deep(.el-breadcrumb__item) {
@@ -829,7 +1055,8 @@ onUnmounted(() => {
 }
 
 .toolbar-left :deep(.el-breadcrumb__separator) {
-  color: #8b949e;
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
 }
 
 .path-item {
@@ -838,7 +1065,7 @@ onUnmounted(() => {
 }
 
 .path-item:hover {
-  color: #58a6ff !important;
+  color: var(--accent-color) !important;
 }
 
 .root-item {
@@ -855,15 +1082,16 @@ onUnmounted(() => {
 /* 右键菜单 */
 .context-menu {
   position: fixed;
-  background: linear-gradient(135deg, rgba(45, 45, 48, 0.98) 0%, rgba(37, 37, 38, 0.98) 100%);
+  background: var(--card-bg);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(102, 126, 234, 0.3);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px;
   min-width: 160px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px var(--shadow-color);
   z-index: 9999;
   animation: fadeIn 0.15s ease-out;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .menu-item {
@@ -871,7 +1099,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  color: #c9d1d9;
+  color: var(--text-primary);
   font-size: 13px;
   border-radius: 4px;
   cursor: pointer;
@@ -880,8 +1108,8 @@ onUnmounted(() => {
 }
 
 .menu-item:hover {
-  background: rgba(102, 126, 234, 0.15);
-  color: #ffffff;
+  background: var(--hover-bg);
+  color: var(--text-primary);
 }
 
 .menu-item.danger {
@@ -899,8 +1127,9 @@ onUnmounted(() => {
 
 .menu-divider {
   height: 1px;
-  background: rgba(48, 54, 61, 0.5);
+  background: var(--border-color);
   margin: 6px 0;
+  transition: background-color 0.3s ease;
 }
 
 /* 拖放提示 */
@@ -910,9 +1139,10 @@ onUnmounted(() => {
   left: 50%;
   transform: translate(-50%, -50%);
   text-align: center;
-  color: #58a6ff;
+  color: var(--accent-color);
   opacity: 0.8;
   z-index: 10;
+  transition: color 0.3s ease;
 }
 
 .drag-hint p {
@@ -921,7 +1151,7 @@ onUnmounted(() => {
 }
 
 .drag-over {
-  background: rgba(102, 126, 234, 0.1); /* 拖拽时背景变浅 */
+  background: var(--hover-bg);
 }
 
 /* 上传进度对话框 */
@@ -938,24 +1168,27 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 8px;
   padding: 12px;
-  background: rgba(88, 166, 255, 0.05);
-  border: 1px solid rgba(88, 166, 255, 0.2);
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
 }
 
 .file-name {
   font-weight: 500;
   font-size: 13px;
-  color: #cccccc;
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.3s ease;
 }
 
 .file-status {
   font-size: 12px;
-  color: #8b949e;
+  color: var(--text-secondary);
   text-align: right;
+  transition: color 0.3s ease;
 }
 
 .upload-progress :deep(.el-progress) {
