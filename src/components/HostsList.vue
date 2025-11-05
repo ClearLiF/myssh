@@ -297,12 +297,10 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh } from '@element-plus/icons-vue'
 import { authAPI, sshListAPI } from '../services/api'
-import { ElMessageBox } from 'element-plus'
 import ToastNotification from './ToastNotification.vue'
-import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom } from '@element-plus/icons-vue'
 
 const emit = defineEmits(['open-connection', 'open-settings'])
 
