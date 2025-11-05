@@ -1,7 +1,14 @@
 <template>
   <div id="app">
+    <!-- 登录界面 -->
+    <LoginRegister 
+      v-if="!isAuthenticated && !skipLogin"
+      @login-success="handleLoginSuccess"
+      @skip-login="handleSkipLogin"
+    />
+
     <!-- 主内容区域 -->
-    <el-container class="main-container">
+    <el-container v-if="isAuthenticated || skipLogin" class="main-container">
       <!-- 主标签页区域 -->
       <el-main class="tabs-content">
         <el-tabs
@@ -82,6 +89,7 @@
 import { ref, onMounted } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
+import LoginRegister from './components/LoginRegister.vue'
 import HostsList from './components/HostsList.vue'
 import ConnectionTab from './components/ConnectionTab.vue'
 import SFTPManagerTab from './components/SFTPManagerTab.vue'
@@ -90,6 +98,11 @@ import ProcessMonitorTab from './components/ProcessMonitorTab.vue'
 import NetworkMonitorTab from './components/NetworkMonitorTab.vue'
 import DockerManagerTab from './components/DockerManagerTab.vue'
 import SystemctlManagerTab from './components/SystemctlManagerTab.vue'
+import { authAPI } from './services/api'
+
+// 认证状态
+const isAuthenticated = ref(false)
+const skipLogin = ref(false) // 是否跳过登录
 
 // 打开的标签页列表（不包含 Hosts）
 const openTabs = ref([])
@@ -169,13 +182,57 @@ const applyTheme = (theme) => {
   }
 }
 
+// 处理登录成功
+const handleLoginSuccess = () => {
+  isAuthenticated.value = true
+  skipLogin.value = false
+  ElMessage.success('欢迎回来！')
+}
+
+// 处理跳过登录
+const handleSkipLogin = () => {
+  skipLogin.value = true
+  // 保存跳过登录的状态到 localStorage
+  localStorage.setItem('skip_login', 'true')
+}
+
+// 处理登出
+const handleLogout = () => {
+  isAuthenticated.value = false
+  skipLogin.value = false
+  openTabs.value = []
+  activeTabName.value = 'hosts'
+  // 清除跳过登录的状态
+  localStorage.removeItem('skip_login')
+  ElMessage.info('已退出登录')
+}
+
+// 检查认证状态
+const checkAuthStatus = () => {
+  isAuthenticated.value = authAPI.isAuthenticated()
+  // 检查是否之前跳过了登录
+  if (!isAuthenticated.value) {
+    const skipped = localStorage.getItem('skip_login')
+    skipLogin.value = skipped === 'true'
+  }
+}
+
 // 在组件挂载时加载主题和检查首次运行
 onMounted(async () => {
   await loadTheme()
-  // 延迟检查首次运行，确保 UI 已经渲染
-  setTimeout(() => {
-    checkFirstRun()
-  }, 500)
+  
+  // 检查认证状态
+  checkAuthStatus()
+  
+  // 如果已登录或跳过登录，延迟检查首次运行
+  if (isAuthenticated.value || skipLogin.value) {
+    setTimeout(() => {
+      checkFirstRun()
+    }, 500)
+  }
+
+  // 监听登出事件
+  window.addEventListener('auth:logout', handleLogout)
 })
 
 // 处理打开连接
