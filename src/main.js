@@ -12,5 +12,12 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
-app.use(ElementPlus)
+// 配置 ElementPlus 全局选项（消息提示通过 CSS 控制从底部显示）
+app.use(ElementPlus, {
+  message: {
+    grouping: true,
+    duration: 3000,
+  }
+})
+
 app.mount('#app')

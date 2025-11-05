@@ -181,7 +181,13 @@
               />
             </el-form-item>
             <el-form-item label="分组">
-              <el-select v-model="hostForm.group" allow-create filterable placeholder="选择或新建分组">
+              <el-select 
+                v-model="hostForm.group" 
+                allow-create 
+                filterable 
+                default-first-option 
+                placeholder="选择或直接输入新分组"
+              >
                 <el-option
                   v-for="group in getAllGroups"
                   :key="group"
