@@ -336,7 +336,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getFileModifyTime: (filePath) => ipcRenderer.invoke('file:getModifyTime', { filePath }),
   
   // 监听文件变化
-  watchFile: (filePath) => ipcRenderer.invoke('file:watch', { filePath })
+  watchFile: (filePath) => ipcRenderer.invoke('file:watch', { filePath }),
+  
+  // 获取文件状态（包括修改时间）
+  getFileStats: (filePath) => ipcRenderer.invoke('file:getStats', { filePath }),
+  
+  // 启动文件监听（使用 fs.watch）
+  startFileWatch: (options) => ipcRenderer.invoke('file:startWatch', options),
+  
+  // 停止文件监听
+  stopFileWatch: (filePath) => ipcRenderer.invoke('file:stopWatch', { filePath }),
+  
+  // 监听文件变化事件
+  onFileChange: (callback) => {
+    ipcRenderer.on('file:changed', (event, data) => callback(data))
+  },
+  
+  // 移除文件变化监听
+  removeFileChangeListener: () => {
+    ipcRenderer.removeAllListeners('file:changed')
+  },
+  
+  // 选择文件
+  selectFiles: (options) => ipcRenderer.invoke('dialog:selectFiles', options)
 })
 
 // 连接管理 API

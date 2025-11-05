@@ -751,6 +751,30 @@ ipcMain.handle('dialog:openFile', async (event, options) => {
   }
 })
 
+// IPC 处理器 - 选择文件（支持多选）
+ipcMain.handle('dialog:selectFiles', async (event, options = {}) => {
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: options.properties || ['openFile', 'multiSelections'],
+      title: options.title || '选择文件',
+      buttonLabel: options.buttonLabel || '选择',
+      ...options
+    })
+    
+    if (!result.canceled) {
+      return { 
+        success: true, 
+        filePaths: result.filePaths,
+        fileCount: result.filePaths.length
+      }
+    } else {
+      return { success: false, message: '用户取消了文件选择' }
+    }
+  } catch (error) {
+    return { success: false, message: error.message }
+  }
+})
+
 // IPC 处理器 - 选择目录
 ipcMain.handle('dialog:openDirectory', async (event) => {
   try {
@@ -1703,8 +1727,121 @@ ipcMain.handle('file:getModifyTime', async (event, { filePath }) => {
 
 // 文件监听状态存储
 const fileWatchStates = new Map()
+// 文件监听器存储
+const fileWatchers = new Map()
 
-// IPC 处理器 - 监听文件变化
+// IPC 处理器 - 获取文件状态
+ipcMain.handle('file:getStats', async (event, { filePath }) => {
+  try {
+    const stats = fs.statSync(filePath)
+    return {
+      success: true,
+      mtimeMs: stats.mtimeMs,
+      size: stats.size,
+      isFile: stats.isFile(),
+      isDirectory: stats.isDirectory()
+    }
+  } catch (error) {
+    console.error('获取文件状态失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 启动文件监听（使用 fs.watch）
+ipcMain.handle('file:startWatch', async (event, { filePath }) => {
+  try {
+    // 如果已经在监听，先停止
+    if (fileWatchers.has(filePath)) {
+      const oldWatcher = fileWatchers.get(filePath)
+      oldWatcher.close()
+      fileWatchers.delete(filePath)
+    }
+
+    let debounceTimer = null
+    let lastModifyTime = Date.now()
+
+    // 使用 fs.watch 监听文件变化
+    const watcher = fs.watch(filePath, (eventType, filename) => {
+      // 防抖处理，避免短时间内多次触发
+      if (debounceTimer) {
+        clearTimeout(debounceTimer)
+      }
+
+      debounceTimer = setTimeout(async () => {
+        try {
+          const stats = fs.statSync(filePath)
+          const currentModifyTime = stats.mtimeMs
+
+          // 只在文件确实被修改时触发
+          if (currentModifyTime > lastModifyTime) {
+            lastModifyTime = currentModifyTime
+            
+            console.log(`文件变化检测: ${filePath}`)
+            
+            // 发送文件变化事件到渲染进程
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send('file:changed', {
+                filePath,
+                eventType,
+                mtimeMs: currentModifyTime
+              })
+            }
+          }
+        } catch (error) {
+          console.error('检查文件状态失败:', error)
+        }
+      }, 500) // 500ms 防抖延迟
+    })
+
+    // 保存监听器
+    fileWatchers.set(filePath, watcher)
+
+    console.log(`已启动文件监听: ${filePath}`)
+
+    return {
+      success: true,
+      message: '文件监听已启动'
+    }
+  } catch (error) {
+    console.error('启动文件监听失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 停止文件监听
+ipcMain.handle('file:stopWatch', async (event, { filePath }) => {
+  try {
+    if (fileWatchers.has(filePath)) {
+      const watcher = fileWatchers.get(filePath)
+      watcher.close()
+      fileWatchers.delete(filePath)
+      console.log(`已停止文件监听: ${filePath}`)
+      return {
+        success: true,
+        message: '文件监听已停止'
+      }
+    } else {
+      return {
+        success: false,
+        message: '未找到文件监听器'
+      }
+    }
+  } catch (error) {
+    console.error('停止文件监听失败:', error)
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 监听文件变化（轮询方式，保留用于降级）
 ipcMain.handle('file:watch', async (event, { filePath }) => {
   try {
     if (!fileWatchStates.has(filePath)) {

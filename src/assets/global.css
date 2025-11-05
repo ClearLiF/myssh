@@ -16,6 +16,7 @@
   --border-color-light: rgba(48, 54, 61, 0.3);
   --accent-color: #667eea;
   --accent-color-hover: #7c8ef0;
+  --accent-color-alpha: rgba(102, 126, 234, 0.1);
   --scrollbar-bg: #1e1e1e;
   --scrollbar-thumb: #424242;
   --scrollbar-thumb-hover: #4e4e4e;
@@ -36,6 +37,7 @@
   --border-color-light: rgba(202, 204, 207, 0.3);
   --accent-color: #667eea;
   --accent-color-hover: #7c8ef0;
+  --accent-color-alpha: rgba(102, 126, 234, 0.1);
   --scrollbar-bg: #f6f7f9;
   --scrollbar-thumb: #d3d3d3;
   --scrollbar-thumb-hover: #bfbfbf;

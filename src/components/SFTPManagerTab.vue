@@ -3,23 +3,24 @@
     <!-- 文件管理器工具栏 -->
     <div class="sftp-toolbar">
       <div class="toolbar-left">
-        <el-breadcrumb separator="/">
-          <el-breadcrumb-item
-            @click="navigateToRoot"
-            class="path-item root-item"
+        <div class="path-input-wrapper">
+          <el-icon class="path-icon"><HomeFilled /></el-icon>
+          <el-input
+            v-model="editableCurrentPath"
+            class="path-input"
+            placeholder="输入路径并按回车跳转"
+            @keyup.enter="navigateToEditedPath"
+            clearable
           >
-            <el-icon><HomeFilled /></el-icon>
-            <span>root</span>
-          </el-breadcrumb-item>
-          <el-breadcrumb-item
-            v-for="(part, index) in pathParts"
-            :key="index"
-            @click="navigateToPath(index)"
-            class="path-item"
-          >
-            {{ part }}
-          </el-breadcrumb-item>
-        </el-breadcrumb>
+            <template #append>
+              <el-button 
+                :icon="DocumentCopy" 
+                @click="copyCurrentPath"
+                title="复制当前路径"
+              />
+            </template>
+          </el-input>
+        </div>
       </div>
       <div class="toolbar-right">
         <el-button size="small" @click="refreshFiles" :loading="loading">
@@ -34,6 +35,10 @@
           <el-icon><FolderAdd /></el-icon>
           新建文件夹
         </el-button>
+        <el-button size="small" @click="showNewFileDialog">
+          <el-icon><Document /></el-icon>
+          新建文件
+        </el-button>
         <el-button 
           size="small" 
           :type="folderUploadMode === 'compress' ? 'primary' : ''"
@@ -46,107 +51,167 @@
       </div>
     </div>
 
-    <!-- 文件列表 -->
-    <div 
-      class="files-container"
-      @dragover.prevent="handleDragOver"
-      @dragleave.prevent="handleDragLeave"
-      @drop.prevent="handleDrop"
-      :class="{ 'drag-over': isDraggingOver }"
-    >
-      <!-- 拖放提示 -->
-      <div v-if="isDraggingOver" class="drag-hint">
-        <el-icon :size="48"><Upload /></el-icon>
-        <p>拖放文件到这里上传</p>
-        <p class="drag-hint-mode">文件夹上传模式: {{ folderUploadMode === 'compress' ? '压缩上传（快速）' : '直接上传（保留结构）' }}</p>
+    <!-- 文件浏览器主体 -->
+    <div class="file-browser">
+      <!-- 左侧树状结构 -->
+      <div class="file-tree-panel">
+        <div class="tree-header">
+          <span>目录树</span>
+          <el-button 
+            size="small" 
+            text 
+            @click="refreshTreeRoot"
+            :loading="treeLoading"
+          >
+            <el-icon><Refresh /></el-icon>
+          </el-button>
+        </div>
+        <div class="tree-content" @contextmenu.prevent="handleTreeContextMenu">
+          <el-tree
+            ref="fileTreeRef"
+            :data="treeData"
+            :props="treeProps"
+            :load="loadTreeNode"
+            lazy
+            node-key="path"
+            :highlight-current="true"
+            :expand-on-click-node="true"
+            @node-click="handleTreeNodeClick"
+            class="directory-tree"
+          >
+            <template #default="{ node, data }">
+              <div class="tree-node-content">
+                <el-icon :size="16" color="#58a6ff">
+                  <Folder />
+                </el-icon>
+                <span class="node-label">{{ node.label }}</span>
+              </div>
+            </template>
+          </el-tree>
+        </div>
       </div>
 
-      <el-table
-        :data="files"
-        @row-dblclick="handleRowDoubleClick"
-        @row-contextmenu="handleRowContextMenu"
-        v-loading="loading"
-        height="100%"
-        class="files-table"
-      >
-        <el-table-column prop="name" label="名称" min-width="150">
-          <template #default="{ row }">
-            <div class="file-name">
-              <el-icon :size="18" :color="row.isDirectory ? '#58a6ff' : '#8b949e'">
-                <Folder v-if="row.isDirectory" />
-                <Document v-else />
-              </el-icon>
-              <span>{{ row.name }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column prop="size" label="大小" width="120">
-          <template #default="{ row }">
-            {{ row.isDirectory ? '-' : formatFileSize(row.size) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="modifiedTime" label="修改时间" width="180">
-          <template #default="{ row }">
-            {{ formatTime(row.modifiedTime) }}
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- 右键菜单 -->
+      <!-- 右侧文件列表 -->
       <div 
-        v-if="contextMenuVisible" 
-        class="context-menu"
-        :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
-        @click="closeContextMenu"
+        class="files-container"
+        @dragover.prevent="handleDragOver"
+        @dragleave.prevent="handleDragLeave"
+        @drop.prevent="handleDrop"
+        @contextmenu.prevent="handleContainerContextMenu"
+        :class="{ 'drag-over': isDraggingOver }"
       >
-        <div 
-          class="menu-item"
-          @click="showRenameDialog(selectedFile)"
-        >
-          <el-icon><Edit /></el-icon>
-          <span>重命名</span>
+        <!-- 拖放提示 -->
+        <div v-if="isDraggingOver" class="drag-hint">
+          <el-icon :size="48"><Upload /></el-icon>
+          <p>拖放文件到这里上传</p>
+          <p class="drag-hint-mode">文件夹上传模式: {{ folderUploadMode === 'compress' ? '压缩上传（快速）' : '直接上传（保留结构）' }}</p>
         </div>
-        <div 
-          class="menu-item"
-          @click="copyPath(selectedFile)"
+
+        <el-table
+          :data="files"
+          @row-dblclick="handleRowDoubleClick"
+          @row-contextmenu="handleRowContextMenu"
+          v-loading="loading"
+          height="100%"
+          class="files-table"
         >
-          <el-icon><DocumentCopy /></el-icon>
-          <span>复制路径</span>
+          <el-table-column prop="name" label="名称" min-width="150">
+            <template #default="{ row }">
+              <div class="file-name">
+                <el-icon :size="18" :color="row.isDirectory ? '#58a6ff' : '#8b949e'">
+                  <Folder v-if="row.isDirectory" />
+                  <Document v-else />
+                </el-icon>
+                <span>{{ row.name }}</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="size" label="大小" width="120">
+            <template #default="{ row }">
+              {{ row.isDirectory ? '-' : formatFileSize(row.size) }}
+            </template>
+          </el-table-column>
+          <el-table-column prop="modifiedTime" label="修改时间" width="180">
+            <template #default="{ row }">
+              {{ formatTime(row.modifiedTime) }}
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <!-- 空状态 -->
+        <div v-if="!loading && files.length === 0" class="empty-files">
+          <el-empty description="此目录为空" />
         </div>
+
+        <!-- 右键菜单 -->
         <div 
-          v-if="!selectedFile?.isDirectory"
-          class="menu-item"
-          @click="openWithEditor(selectedFile)"
+          v-if="contextMenuVisible" 
+          class="context-menu"
+          :style="{ top: contextMenuY + 'px', left: contextMenuX + 'px' }"
+          @click="closeContextMenu"
         >
-          <el-icon><EditPen /></el-icon>
-          <span>用编辑器打开</span>
-        </div>
-        <div 
-          v-if="!selectedFile?.isDirectory" 
-          class="menu-item"
-          @click="downloadFile(selectedFile)"
-        >
-          <el-icon><Download /></el-icon>
-          <span>下载</span>
-        </div>
-        <div 
-          class="menu-item danger"
-          @click="deleteFile(selectedFile)"
-        >
-          <el-icon><Delete /></el-icon>
-          <span>删除</span>
-        </div>
-        <div class="menu-divider"></div>
-        <div class="menu-item" @click="refreshFiles">
-          <el-icon><Refresh /></el-icon>
-          <span>刷新</span>
+          <!-- 文件/文件夹右键菜单 -->
+          <template v-if="selectedFile">
+            <div 
+              class="menu-item"
+              @click="showRenameDialog(selectedFile)"
+            >
+              <el-icon><Edit /></el-icon>
+              <span>重命名</span>
+            </div>
+            <div 
+              class="menu-item"
+              @click="copyPath(selectedFile)"
+            >
+              <el-icon><DocumentCopy /></el-icon>
+              <span>复制路径</span>
+            </div>
+            <div 
+              v-if="!selectedFile.isDirectory"
+              class="menu-item"
+              @click="openWithEditor(selectedFile)"
+            >
+              <el-icon><EditPen /></el-icon>
+              <span>用编辑器打开</span>
+            </div>
+            <div 
+              v-if="!selectedFile.isDirectory" 
+              class="menu-item"
+              @click="downloadFile(selectedFile)"
+            >
+              <el-icon><Download /></el-icon>
+              <span>下载</span>
+            </div>
+            <div 
+              class="menu-item danger"
+              @click="deleteFile(selectedFile)"
+            >
+              <el-icon><Delete /></el-icon>
+              <span>删除</span>
+            </div>
+            <div class="menu-divider"></div>
+          </template>
+          
+          <!-- 通用菜单选项 -->
+          <div class="menu-item" @click="showNewFileDialog">
+            <el-icon><Document /></el-icon>
+            <span>新建文件</span>
+          </div>
+          <div class="menu-item" @click="showNewFolderDialog">
+            <el-icon><FolderAdd /></el-icon>
+            <span>新建文件夹</span>
+          </div>
+          <div class="menu-item" @click="showUploadDialog">
+            <el-icon><Upload /></el-icon>
+            <span>上传文件</span>
+          </div>
+          <div class="menu-divider"></div>
+          <div class="menu-item" @click="refreshFiles">
+            <el-icon><Refresh /></el-icon>
+            <span>刷新</span>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- 空状态 -->
-    <div v-if="!loading && files.length === 0" class="empty-files">
-      <el-empty description="此目录为空" />
     </div>
 
     <!-- 传输管理器 -->
@@ -158,7 +223,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { Refresh, Upload, FolderAdd, Folder, Document, Download, Delete, HomeFilled, Edit, DocumentCopy, EditPen, Box } from '@element-plus/icons-vue'
 import TransferManager from './TransferManager.vue'
@@ -180,6 +245,7 @@ const props = defineProps({
 })
 
 const currentPath = ref('/')
+const editableCurrentPath = ref('/') // 可编辑的当前路径
 const files = ref([])
 const loading = ref(false)
 const contextMenuVisible = ref(false)
@@ -191,10 +257,15 @@ const folderUploadMode = ref('compress') // 文件夹上传方式：'compress' �
 const transferManagerRef = ref(null) // 传输管理器引用
 const toastRef = ref(null) // Toast 通知引用
 
-// 路径分割
-const pathParts = computed(() => {
-  return currentPath.value.split('/').filter(p => p)
-})
+// 树相关
+const treeData = ref([])
+const treeLoading = ref(false)
+const fileTreeRef = ref(null)
+const treeProps = {
+  label: 'name',
+  children: 'children',
+  isLeaf: 'isLeaf'
+}
 
 // 格式化文件大小
 const formatFileSize = (bytes) => {
@@ -268,13 +339,51 @@ const refreshFiles = () => {
   loadFiles(true) // 点击刷新按钮时强制刷新
 }
 
+// 判断是否为文本文件
+const isTextFile = (filename) => {
+  const textExtensions = [
+    '.txt', '.log', '.md', '.json', '.xml', '.html', '.htm', '.css', '.js', '.jsx',
+    '.ts', '.tsx', '.vue', '.java', '.c', '.cpp', '.h', '.py', '.rb', '.php',
+    '.sh', '.bash', '.zsh', '.yml', '.yaml', '.toml', '.ini', '.conf', '.config',
+    '.sql', '.go', '.rs', '.swift', '.kt', '.gradle', '.properties', '.env',
+    '.gitignore', '.dockerignore', '.editorconfig', '.eslintrc', '.prettierrc',
+    'Dockerfile', 'Makefile', 'README', 'LICENSE', 'CHANGELOG'
+  ]
+  
+  const lowerName = filename.toLowerCase()
+  
+  // 检查扩展名
+  if (textExtensions.some(ext => lowerName.endsWith(ext))) {
+    return true
+  }
+  
+  // 检查无扩展名的文本文件
+  if (!lowerName.includes('.') && textExtensions.some(name => lowerName === name.toLowerCase())) {
+    return true
+  }
+  
+  return false
+}
+
 // 双击行
 const handleRowDoubleClick = (row) => {
   if (row.isDirectory) {
+    // 双击文件夹：进入文件夹
     currentPath.value = currentPath.value === '/' 
       ? `/${row.name}`
       : `${currentPath.value}/${row.name}`
     loadFiles()
+    
+    // 在树中设置当前节点并高亮
+    setCurrentNodeInTree(currentPath.value)
+  } else {
+    // 双击文件：如果是文本文件则用编辑器打开
+    if (isTextFile(row.name)) {
+      openWithEditor(row)
+    } else {
+      // 非文本文件，提示下载
+      toastRef.value?.info(`"${row.name}" 不是文本文件，请使用右键菜单下载`)
+    }
   }
 }
 
@@ -282,6 +391,33 @@ const handleRowDoubleClick = (row) => {
 const handleRowContextMenu = (row, column, event) => {
   event.preventDefault()
   selectedFile.value = row
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
+}
+
+// 处理容器右键菜单（空白区域）
+const handleContainerContextMenu = (event) => {
+  // 检查是否点击在表格行上
+  const target = event.target
+  const isTableRow = target.closest('.el-table__row')
+  
+  // 如果点击在表格行上，不显示容器菜单（由 handleRowContextMenu 处理）
+  if (isTableRow) {
+    return
+  }
+  
+  event.preventDefault()
+  selectedFile.value = null  // 空白区域右键，清空选中文件
+  contextMenuX.value = event.clientX
+  contextMenuY.value = event.clientY
+  contextMenuVisible.value = true
+}
+
+// 处理树右键菜单
+const handleTreeContextMenu = (event) => {
+  event.preventDefault()
+  selectedFile.value = null  // 树区域右键，清空选中文件
   contextMenuX.value = event.clientX
   contextMenuY.value = event.clientY
   contextMenuVisible.value = true
@@ -299,17 +435,142 @@ const handleClickOutside = (event) => {
   }
 }
 
-// 回到根目录
-const navigateToRoot = () => {
-  currentPath.value = '/'
-  loadFiles()
+// 复制当前路径
+const copyCurrentPath = () => {
+  navigator.clipboard.writeText(currentPath.value).then(() => {
+    toastRef.value?.success(`已复制路径: ${currentPath.value}`)
+  }).catch(() => {
+    toastRef.value?.error('复制路径失败')
+  })
 }
 
-// 导航到指定路径
-const navigateToPath = (index) => {
-  const parts = pathParts.value.slice(0, index + 1)
-  currentPath.value = '/' + parts.join('/')
+// 导航到编辑的路径
+const navigateToEditedPath = async () => {
+  let path = editableCurrentPath.value.trim()
+  if (!path) {
+    path = '/'
+  }
+  // 确保路径以 / 开头
+  if (!path.startsWith('/')) {
+    path = '/' + path
+  }
+  // 移除末尾的 /
+  if (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1)
+  }
+  currentPath.value = path
+  await loadFiles()
+  
+  // 在树中设置当前节点并高亮
+  setCurrentNodeInTree(path)
+}
+
+// 在树中设置当前节点
+const setCurrentNodeInTree = (path) => {
+  if (fileTreeRef.value && path !== '/') {
+    // 使用 nextTick 确保树已经渲染
+    nextTick(() => {
+      try {
+        fileTreeRef.value.setCurrentKey(path)
+      } catch (error) {
+        console.log('设置当前节点失败:', error)
+      }
+    })
+  }
+}
+
+// 刷新树根节点
+const refreshTreeRoot = async () => {
+  treeLoading.value = true
+  try {
+    await loadTreeRoot()
+  } finally {
+    treeLoading.value = false
+  }
+}
+
+// 加载树根节点
+const loadTreeRoot = async () => {
+  if (!props.connectionId) {
+    return
+  }
+
+  try {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.sftp.list(props.connectionId, '/')
+      if (result.success) {
+        const folders = result.files
+          .filter(file => file.isDirectory)
+          .map(file => ({
+            name: file.name,
+            path: `/${file.name}`,
+            isLeaf: false
+          }))
+        treeData.value = folders
+      }
+    } else {
+      // 模拟数据
+      treeData.value = [
+        { name: 'home', path: '/home', isLeaf: false },
+        { name: 'var', path: '/var', isLeaf: false },
+        { name: 'etc', path: '/etc', isLeaf: false },
+        { name: 'opt', path: '/opt', isLeaf: false }
+      ]
+    }
+  } catch (error) {
+    console.error('加载目录树失败:', error)
+  }
+}
+
+// 懒加载树节点
+const loadTreeNode = async (node, resolve) => {
+  if (!props.connectionId) {
+    resolve([])
+    return
+  }
+
+  const nodePath = node.data ? node.data.path : '/'
+  
+  try {
+    if (window.electronAPI) {
+      const result = await window.electronAPI.sftp.list(props.connectionId, nodePath)
+      if (result.success) {
+        const folders = result.files
+          .filter(file => file.isDirectory)
+          .map(file => ({
+            name: file.name,
+            path: `${nodePath}/${file.name}`.replace('//', '/'),
+            isLeaf: false
+          }))
+        resolve(folders)
+      } else {
+        resolve([])
+      }
+    } else {
+      // 模拟数据
+      await new Promise(r => setTimeout(r, 300))
+      resolve([
+        { name: 'subfolder1', path: `${nodePath}/subfolder1`, isLeaf: false },
+        { name: 'subfolder2', path: `${nodePath}/subfolder2`, isLeaf: false }
+      ])
+    }
+  } catch (error) {
+    console.error('加载树节点失败:', error)
+    resolve([])
+  }
+}
+
+// 处理树节点点击
+const handleTreeNodeClick = (data, node) => {
+  currentPath.value = data.path
   loadFiles()
+  
+  // 设置当前节点高亮
+  nextTick(() => {
+    if (fileTreeRef.value) {
+      fileTreeRef.value.setCurrentKey(data.path)
+    }
+  })
 }
 
 // 拖拽相关
@@ -459,18 +720,300 @@ const loadFolderUploadMode = () => {
 }
 
 // 上传文件对话框
-const showUploadDialog = () => {
-  toastRef.value?.info('上传功能开发中...')
+const showUploadDialog = async () => {
+  if (!props.connectionId) {
+    toastRef.value?.error('请先建立 SSH 连接')
+    return
+  }
+
+  if (!window.electronAPI || !window.electronAPI.selectFiles) {
+    toastRef.value?.error('当前环境不支持选择文件')
+    return
+  }
+
+  try {
+    // 调用 Electron 文件选择对话框
+    const result = await window.electronAPI.selectFiles({
+      title: '选择要上传的文件',
+      buttonLabel: '上传',
+      properties: ['openFile', 'multiSelections']
+    })
+
+    if (result && result.filePaths && result.filePaths.length > 0) {
+      // 将选择的文件转换为上传格式
+      const filesToUpload = result.filePaths.map(filePath => ({
+        path: filePath,
+        name: filePath.split(/[/\\]/).pop(), // 提取文件名
+        fullPath: filePath.split(/[/\\]/).pop()
+      }))
+      
+      // 调用上传函数
+      await uploadFiles(filesToUpload)
+    }
+  } catch (error) {
+    console.error('选择文件失败:', error)
+    toastRef.value?.error('选择文件失败: ' + error.message)
+  }
 }
 
 // 新建文件夹对话框
 const showNewFolderDialog = () => {
-  toastRef.value?.info('新建文件夹功能开发中...')
+  ElMessageBox.prompt('请输入新文件夹名称', '新建文件夹', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    inputPlaceholder: '例如: my_folder',
+    inputValidator: (value) => {
+      if (!value || !value.trim()) {
+        return '文件夹名称不能为空'
+      }
+      const trimmedValue = value.trim()
+      if (trimmedValue.includes('/') || trimmedValue.includes('\\')) {
+        return '文件夹名称不能包含路径分隔符 / 或 \\'
+      }
+      // 检查是否与现有文件夹重名
+      const exists = files.value.some(file => file.name === trimmedValue)
+      if (exists) {
+        return '该文件夹名称已存在'
+      }
+      return true
+    }
+  }).then(async ({ value }) => {
+    if (value && value.trim()) {
+      await createFolder(value.trim())
+    }
+  }).catch(() => {
+    // 用户取消
+  })
+}
+
+// 创建文件夹
+const createFolder = async (folderName) => {
+  if (!props.connectionId) {
+    toastRef.value?.error('请先建立 SSH 连接')
+    return
+  }
+
+  try {
+    const folderPath = `${currentPath.value}/${folderName}`.replace('//', '/')
+    
+    if (window.electronAPI && window.electronAPI.ssh) {
+      // 使用 SSH 命令创建文件夹
+      const createCommand = `mkdir -p "${folderPath}"`
+      const result = await window.electronAPI.ssh.execute(
+        props.connectionId,
+        createCommand
+      )
+
+      if (result.success) {
+        toastRef.value?.success(`已创建文件夹: ${folderName}`)
+        
+        // 等待一小段时间确保服务器操作完成
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        // 刷新文件列表
+        await loadFiles(true)
+      } else {
+        throw new Error(result.message || '创建文件夹失败')
+      }
+    } else {
+      toastRef.value?.error('当前环境不支持创建文件夹')
+    }
+  } catch (error) {
+    toastRef.value?.error(`创建文件夹失败: ${error.message}`)
+  }
+}
+
+// 新建文件对话框
+const showNewFileDialog = () => {
+  ElMessageBox.prompt('请输入新文件名称', '新建文件', {
+    confirmButtonText: '确定',
+    cancelButtonText: '取消',
+    inputPlaceholder: '例如: config.txt',
+    inputValidator: (value) => {
+      if (!value || !value.trim()) {
+        return '文件名称不能为空'
+      }
+      const trimmedValue = value.trim()
+      if (trimmedValue.includes('/') || trimmedValue.includes('\\')) {
+        return '文件名称不能包含路径分隔符 / 或 \\'
+      }
+      // 检查是否与现有文件重名
+      const exists = files.value.some(file => file.name === trimmedValue)
+      if (exists) {
+        return '该文件名称已存在'
+      }
+      return true
+    }
+  }).then(async ({ value }) => {
+    if (value && value.trim()) {
+      await createFile(value.trim())
+    }
+  }).catch(() => {
+    // 用户取消
+  })
+}
+
+// 创建文件
+const createFile = async (fileName) => {
+  if (!props.connectionId) {
+    toastRef.value?.error('请先建立 SSH 连接')
+    return
+  }
+
+  try {
+    const filePath = `${currentPath.value}/${fileName}`.replace('//', '/')
+    
+    if (window.electronAPI && window.electronAPI.ssh) {
+      // 使用 SSH 命令创建空文件
+      const createCommand = `touch "${filePath}"`
+      const result = await window.electronAPI.ssh.execute(
+        props.connectionId,
+        createCommand
+      )
+
+      if (result.success) {
+        toastRef.value?.success(`已创建文件: ${fileName}`)
+        
+        // 等待一小段时间确保服务器操作完成
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        // 刷新文件列表
+        await loadFiles(true)
+        
+        // 询问是否用编辑器打开
+        ElMessageBox.confirm(
+          `文件创建成功，是否用编辑器打开 "${fileName}"？`,
+          '提示',
+          {
+            confirmButtonText: '打开',
+            cancelButtonText: '不打开',
+            type: 'info'
+          }
+        ).then(() => {
+          // 用户选择打开，调用编辑器打开功能
+          const fileObj = {
+            name: fileName,
+            fullPath: filePath,
+            isDirectory: false
+          }
+          openWithEditor(fileObj)
+        }).catch(() => {
+          // 用户选择不打开
+        })
+      } else {
+        throw new Error(result.message || '创建文件失败')
+      }
+    } else {
+      toastRef.value?.error('当前环境不支持创建文件')
+    }
+  } catch (error) {
+    toastRef.value?.error(`创建文件失败: ${error.message}`)
+  }
 }
 
 // 下载文件
-const downloadFile = (file) => {
-  toastRef.value?.info(`下载文件: ${file.name}`)
+const downloadFile = async (file) => {
+  if (!props.connectionId) {
+    toastRef.value?.error('请先建立 SSH 连接')
+    return
+  }
+
+  if (file.isDirectory) {
+    toastRef.value?.warning('暂不支持下载文件夹，请下载压缩包')
+    return
+  }
+
+  try {
+    // 先选择保存位置
+    let savePath
+    
+    if (window.electronAPI && window.electronAPI.dialog) {
+      const result = await window.electronAPI.dialog.saveFile({
+        title: '保存文件',
+        defaultPath: file.name,
+        buttonLabel: '保存'
+      })
+      
+      if (!result || result.canceled || !result.filePath) {
+        toastRef.value?.info('已取消下载')
+        return
+      }
+      
+      savePath = result.filePath
+    } else {
+      toastRef.value?.error('当前环境不支持文件下载')
+      return
+    }
+
+    const remotePath = file.fullPath || `${currentPath.value}/${file.name}`.replace('//', '/')
+    
+    // 创建传输任务（包含本地路径，用于历史记录）
+    const taskId = transferManagerRef.value?.addTask({
+      name: file.name,
+      type: 'download',
+      totalSize: file.size || 0,
+      path: remotePath,
+      localPath: savePath  // 添加本地保存路径
+    })
+
+    // 开始下载
+    if (window.electronAPI && window.electronAPI.sftp) {
+      const result = await window.electronAPI.sftp.download(
+        props.connectionId,
+        remotePath,
+        savePath
+      )
+
+      if (result.success) {
+        // 更新任务状态为完成
+        if (taskId && transferManagerRef.value) {
+          transferManagerRef.value.updateTask(taskId, {
+            percentage: 100,
+            currentSize: file.size || 0,
+            status: 'success'
+          })
+        }
+        
+        toastRef.value?.success(`文件下载成功: ${file.name}`)
+        
+        // 询问是否打开文件所在文件夹
+        if (window.electronAPI && window.electronAPI.system) {
+          ElMessageBox.confirm(
+            '文件已下载完成，是否打开文件所在位置？',
+            '下载完成',
+            {
+              confirmButtonText: '打开',
+              cancelButtonText: '关闭',
+              type: 'success'
+            }
+          ).then(() => {
+            window.electronAPI.system.showItemInFolder(savePath)
+          }).catch(() => {
+            // 用户选择不打开
+          })
+        }
+      } else {
+        // 更新任务状态为失败
+        if (taskId && transferManagerRef.value) {
+          transferManagerRef.value.updateTask(taskId, {
+            status: 'error',
+            percentage: 0
+          })
+        }
+        throw new Error(result.message || '下载失败')
+      }
+    } else {
+      if (taskId && transferManagerRef.value) {
+        transferManagerRef.value.updateTask(taskId, {
+          status: 'error',
+          percentage: 0
+        })
+      }
+      toastRef.value?.error('当前环境不支持文件下载')
+    }
+  } catch (error) {
+    toastRef.value?.error(`下载文件失败: ${error.message}`)
+  }
 }
 
 // 复制路径
@@ -1014,12 +1557,72 @@ const openWithEditor = async (file) => {
 }
 
 // 启动文件监听
-const startFileWatcher = (connectionId, localPath, remotePath, fileName) => {
-  let watchCount = 0
+const startFileWatcher = async (connectionId, localPath, remotePath, fileName) => {
+  // 使用更高效的文件监听方式
+  if (window.electronAPI && window.electronAPI.startFileWatch) {
+    try {
+      // 启动文件监听（Electron 主进程会使用 fs.watch）
+      const watchResult = await window.electronAPI.startFileWatch({
+        filePath: localPath
+      })
+      
+      if (watchResult && watchResult.success) {
+        console.log(`已启动文件监听: ${fileName}`)
+        toastRef.value?.info(`✓ 文件监听已启动，保存后将自动上传到服务器`)
+        
+        // 监听文件变化事件
+        if (window.electronAPI && window.electronAPI.onFileChange) {
+          window.electronAPI.onFileChange(async (data) => {
+            // 只处理当前文件的变化
+            if (data.filePath === localPath) {
+              console.log(`检测到文件变化: ${fileName}`)
+              
+              // 等待一小段时间确保文件写入完成
+              await new Promise(resolve => setTimeout(resolve, 300))
+              
+              try {
+                if (window.electronAPI && window.electronAPI.sftp) {
+                  const uploadResult = await window.electronAPI.sftp.upload(
+                    connectionId,
+                    localPath,
+                    remotePath
+                  )
+                  
+                  if (uploadResult && uploadResult.success) {
+                    toastRef.value?.success(`✓ 已自动保存到服务器: ${fileName}`)
+                    console.log(`文件已上传: ${fileName}`)
+                  } else {
+                    toastRef.value?.error(`上传失败: ${uploadResult?.message || '未知错误'}`)
+                  }
+                }
+              } catch (error) {
+                console.error('上传文件失败:', error)
+                toastRef.value?.error(`上传失败: ${error.message}`)
+              }
+            }
+          })
+        }
+      }
+    } catch (error) {
+      console.error('启动文件监听失败:', error)
+      // 降级到轮询方式
+      startFileWatcherPolling(connectionId, localPath, remotePath, fileName)
+    }
+  } else {
+    // 如果不支持文件监听API，使用轮询方式
+    startFileWatcherPolling(connectionId, localPath, remotePath, fileName)
+  }
+}
+
+// 轮询方式监听文件（降级方案）
+const startFileWatcherPolling = (connectionId, localPath, remotePath, fileName) => {
+  let lastModified = Date.now()
+  let uploadInProgress = false
+  const checkInterval = 1000 // 每秒检查一次
   const maxWatchTime = 30 * 60 * 1000 // 30分钟后停止监听
-  const checkInterval = 2000 // 每2秒检查一次
-  let lastUploadTime = 0
-  const uploadCooldown = 5000 // 5秒内不重复上传
+  let watchCount = 0
+  
+  console.log(`使用轮询方式监听文件: ${fileName}`)
   
   const watchTimer = setInterval(async () => {
     watchCount += checkInterval
@@ -1031,39 +1634,47 @@ const startFileWatcher = (connectionId, localPath, remotePath, fileName) => {
       return
     }
     
+    // 如果正在上传，跳过此次检查
+    if (uploadInProgress) {
+      return
+    }
+    
     try {
-      // 尝试监听文件变化
-      if (window.electronAPI && window.electronAPI.watchFile) {
-        const result = await window.electronAPI.watchFile(localPath)
+      // 检查文件修改时间
+      if (window.electronAPI && window.electronAPI.getFileStats) {
+        const stats = await window.electronAPI.getFileStats(localPath)
         
-        if (result && result.changed) {
-          const now = Date.now()
-          // 检查冷却时间，避免频繁上传
-          if (now - lastUploadTime >= uploadCooldown) {
-            lastUploadTime = now
+        if (stats && stats.mtimeMs > lastModified) {
+          lastModified = stats.mtimeMs
+          uploadInProgress = true
+          
+          console.log(`检测到文件变化: ${fileName}`)
+          
+          // 等待一小段时间确保文件写入完成
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+          // 上传文件
+          if (window.electronAPI && window.electronAPI.sftp) {
+            const uploadResult = await window.electronAPI.sftp.upload(
+              connectionId,
+              localPath,
+              remotePath
+            )
             
-            // 等待一秒确保文件写入完成
-            await new Promise(resolve => setTimeout(resolve, 1000))
-            
-            // 上传文件
-            if (window.electronAPI && window.electronAPI.sftp) {
-              const uploadResult = await window.electronAPI.sftp.upload(
-                connectionId,
-                localPath,
-                remotePath
-              )
-              
-              if (uploadResult && uploadResult.success) {
-                toastRef.value?.success(`文件已自动保存到服务器: ${fileName}`)
-              } else {
-                toastRef.value?.error(`上传文件失败: ${uploadResult?.message || '未知错误'}`)
-              }
+            if (uploadResult && uploadResult.success) {
+              toastRef.value?.success(`✓ 已自动保存到服务器: ${fileName}`)
+              console.log(`文件已上传: ${fileName}`)
+            } else {
+              toastRef.value?.error(`上传失败: ${uploadResult?.message || '未知错误'}`)
             }
           }
+          
+          uploadInProgress = false
         }
       }
     } catch (error) {
       console.error('监听文件失败:', error)
+      uploadInProgress = false
     }
   }, checkInterval)
 }
@@ -1072,12 +1683,21 @@ const startFileWatcher = (connectionId, localPath, remotePath, fileName) => {
 watch(() => props.connectionId, (newId) => {
   if (newId) {
     loadFiles()
+    loadTreeRoot()
   }
 }, { immediate: true })
+
+// 同步 currentPath 和 editableCurrentPath，并设置树高亮
+watch(currentPath, (newPath) => {
+  editableCurrentPath.value = newPath
+  // 设置树中的高亮节点
+  setCurrentNodeInTree(newPath)
+})
 
 onMounted(() => {
   if (props.connectionId) {
     loadFiles()
+    loadTreeRoot()
   }
   // 加载上传模式设置
   loadFolderUploadMode()
@@ -1116,35 +1736,139 @@ onUnmounted(() => {
 .toolbar-left {
   flex: 1;
   min-width: 0;
+  margin-right: 16px;
 }
 
-.toolbar-left :deep(.el-breadcrumb) {
-  font-size: 13px;
+.path-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.toolbar-left :deep(.el-breadcrumb__item) {
-  color: var(--text-primary);
-  transition: color 0.3s ease;
-}
-
-.path-item {
-  cursor: pointer;
-  transition: color 0.2s ease;
-}
-
-.path-item:hover {
+.path-icon {
+  font-size: 18px;
   color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.path-input {
+  flex: 1;
+}
+
+.path-input :deep(.el-input__wrapper) {
+  background: var(--bg-primary);
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.path-input :deep(.el-input__wrapper:hover) {
+  background: var(--hover-bg);
+}
+
+.path-input :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px var(--accent-color-alpha);
 }
 
 .toolbar-right {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 文件浏览器主体 */
+.file-browser {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 1px;
+  background: var(--border-color);
+}
+
+/* 左侧树面板 */
+.file-tree-panel {
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border-color);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.tree-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: all 0.3s ease;
+}
+
+.tree-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.directory-tree {
+  background: transparent;
+}
+
+.directory-tree :deep(.el-tree-node__content) {
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin: 2px 0;
+  transition: all 0.2s;
+  height: 32px;
+}
+
+.directory-tree :deep(.el-tree-node__content:hover) {
+  background: var(--hover-bg);
+}
+
+.directory-tree :deep(.el-tree-node.is-current > .el-tree-node__content) {
+  background: var(--accent-color-alpha);
+  color: var(--accent-color);
+  font-weight: 600;
+}
+
+.directory-tree :deep(.el-tree-node__expand-icon) {
+  color: var(--text-secondary);
+  transition: all 0.2s;
+}
+
+.directory-tree :deep(.el-tree-node__expand-icon.is-leaf) {
+  color: transparent;
+}
+
+.directory-tree :deep(.el-tree-node__expand-icon.expanded) {
+  transform: rotate(90deg);
+}
+
+.tree-node-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.node-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .files-container {
   flex: 1;
   overflow: hidden;
   position: relative;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
 }
 
 .files-table {
@@ -1231,41 +1955,12 @@ onUnmounted(() => {
 }
 
 .empty-files {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-secondary);
-  transition: background-color 0.3s ease;
-}
-
-.toolbar-left :deep(.el-breadcrumb__item) {
-  font-weight: 500;
-}
-
-.toolbar-left :deep(.el-breadcrumb__separator) {
-  color: var(--text-secondary);
-  transition: color 0.3s ease;
-}
-
-.path-item {
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.path-item:hover {
-  color: var(--accent-color) !important;
-}
-
-.root-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-}
-
-.root-item .el-icon {
-  font-size: 14px;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  text-align: center;
 }
 
 /* 右键菜单 */
