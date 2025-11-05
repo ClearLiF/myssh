@@ -295,3 +295,60 @@ code, pre, .monospace {
   text-shadow: none !important;
 }
 
+/* 消息提示从右下角显示 */
+.el-message {
+  top: auto !important;
+  bottom: 20px !important;
+  left: auto !important;
+  right: 20px !important;
+  transform: none !important;
+  min-width: 300px;
+  max-width: 400px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(10px);
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+.bottom-message.el-message {
+  bottom: 20px !important;
+  right: 20px !important;
+}
+
+/* 右下角消息滑入动画 */
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 右下角消息滑出动画 */
+.el-message.el-message--fadeout {
+  animation: messageSlideOut 0.3s ease-in;
+}
+
+@keyframes messageSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100px);
+  }
+}
+
+/* 多个消息堆叠时的间距（从下往上堆叠） */
+.el-message {
+  position: fixed !important;
+}
+
+.el-message + .el-message {
+  margin-bottom: 16px;
+}
+
