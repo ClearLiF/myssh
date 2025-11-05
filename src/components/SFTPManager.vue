@@ -74,6 +74,41 @@
             show-password
           />
         </el-form-item>
+        
+        <el-row v-if="sftpConfig.authType === 'privateKey'">
+          <el-col :span="24">
+            <el-form-item label="私钥内容" required>
+              <el-input 
+                v-model="sftpConfig.privateKeyContent" 
+                type="textarea"
+                :rows="6"
+                placeholder="请粘贴私钥内容，例如：&#10;-----BEGIN PRIVATE KEY-----&#10;MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...&#10;-----END PRIVATE KEY-----"
+                :disabled="isConnected"
+              />
+              <div class="key-input-actions">
+                <el-button size="small" @click="selectPrivateKeyFile" :disabled="isConnected">
+                  从文件加载
+                </el-button>
+                <el-button size="small" @click="clearPrivateKey" :disabled="isConnected">
+                  清空
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row v-if="sftpConfig.authType === 'privateKey'">
+          <el-col :span="12">
+            <el-form-item label="私钥密码">
+              <el-input 
+                v-model="sftpConfig.privateKeyPassphrase" 
+                type="password" 
+                placeholder="私钥密码（可选）"
+                :disabled="isConnected"
+                show-password
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
       </el-form>
     </el-card>
 
@@ -208,7 +243,9 @@ const sftpConfig = ref({
   port: 22,
   username: '',
   authType: 'password',
-  password: ''
+  password: '',
+  privateKeyContent: '',
+  privateKeyPassphrase: ''
 })
 
 // 状态管理
@@ -314,11 +351,13 @@ const contextMenu = ref({
 
 // 表单验证
 const isFormValid = computed(() => {
-  const { host, username, authType, password } = sftpConfig.value
+  const { host, username, authType, password, privateKeyContent } = sftpConfig.value
   if (!host || !username) return false
   
   if (authType === 'password') {
     return !!password
+  } else if (authType === 'privateKey') {
+    return !!privateKeyContent.trim()
   }
   
   return false
@@ -617,6 +656,54 @@ const countTotalItems = (folder) => {
 const showDownloadOptionsDialog = () => {
   const message = `即将下载文件夹: ${selectedRemoteItem.value.name}\n\n请确认下载选项并点击确认开始下载。`
   return showConfirm('文件夹下载选项', message)
+}
+
+// 从文件加载私钥
+const selectPrivateKeyFile = async () => {
+  if (window.electronAPI) {
+    try {
+      const result = await window.electronAPI.dialog.openFile({
+        title: '选择私钥文件',
+        filters: [
+          { name: '私钥文件', extensions: ['pem', 'key', 'rsa', 'ppk'] },
+          { name: 'PEM文件', extensions: ['pem'] },
+          { name: 'OpenSSH私钥', extensions: ['key', 'rsa'] },
+          { name: '所有文件', extensions: ['*'] }
+        ]
+      })
+      
+      if (result.success) {
+        // 读取文件内容
+        const fileContent = await window.electronAPI.fs.readFile(result.filePath)
+        if (fileContent.success) {
+          sftpConfig.value.privateKeyContent = fileContent.content
+          toast.value?.success('私钥内容已加载', '加载成功')
+          
+          // 检查私钥格式并给出提示
+          const content = fileContent.content.toLowerCase()
+          if (content.includes('begin openssh private key')) {
+            toast.value?.info('检测到OpenSSH格式私钥，建议转换为PEM格式以获得更好兼容性', '格式提示')
+          } else if (content.includes('begin rsa private key') || content.includes('begin private key')) {
+            toast.value?.success('私钥格式正确', '格式验证')
+          } else {
+            toast.value?.warning('私钥格式可能不正确，请确保是有效的私钥文件', '格式警告')
+          }
+        } else {
+          toast.value?.error('读取文件失败：' + fileContent.message, '读取失败')
+        }
+      }
+    } catch (error) {
+      toast.value?.error('加载文件失败', '加载失败')
+    }
+  } else {
+    toast.value?.info('文件加载功能需要在 Electron 环境中使用', '功能提示')
+  }
+}
+
+// 清空私钥内容
+const clearPrivateKey = () => {
+  sftpConfig.value.privateKeyContent = ''
+  toast.value?.info('私钥内容已清空', '清空成功')
 }
 
 onMounted(() => {

@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron')
 const path = require('path')
+const fs = require('fs')
 const { NodeSSH } = require('node-ssh')
 const net = require('net')
 
@@ -284,8 +285,25 @@ ipcMain.handle('ssh:connect', async (event, config) => {
 
     if (config.authType === 'password' && config.password) {
       connectionConfig.password = String(config.password)
-    } else if (config.authType === 'privateKey' && config.privateKeyPath) {
-      connectionConfig.privateKey = String(config.privateKeyPath)
+    } else if (config.authType === 'privateKey' && config.privateKeyContent) {
+      try {
+        // 验证私钥格式
+        const privateKeyContent = String(config.privateKeyContent).trim()
+        if (!privateKeyContent.includes('BEGIN') || !privateKeyContent.includes('PRIVATE KEY')) {
+          throw new Error('私钥内容格式不正确，请确保是有效的私钥内容（PEM格式）')
+        }
+        
+        connectionConfig.privateKey = privateKeyContent
+        
+        // 如果有密码保护的私钥，添加密码
+        if (config.privateKeyPassphrase) {
+          connectionConfig.passphrase = String(config.privateKeyPassphrase)
+        }
+        
+        console.log('私钥内容已成功验证')
+      } catch (error) {
+        throw new Error(`私钥内容验证失败: ${error.message}`)
+      }
     }
 
     console.log('尝试连接 SSH:', { host: connectionConfig.host, port: connectionConfig.port, username: connectionConfig.username })
@@ -327,9 +345,32 @@ ipcMain.handle('ssh:connect', async (event, config) => {
     }
   } catch (error) {
     console.error('SSH 连接失败:', error)
+    
+    // 提供更详细的错误信息
+    let errorMessage = error.message || 'SSH 连接失败'
+    
+    if (error.message && error.message.includes('privateKey')) {
+      errorMessage = `SSH 连接失败: ${error.message}`
+    } else if (error.message && error.message.includes('Cannot parse privateKey')) {
+      errorMessage = 'SSH 连接失败: 私钥格式不支持。请确保使用PEM格式的私钥文件，或尝试转换私钥格式：\n' +
+                   '• OpenSSH格式转PEM: ssh-keygen -p -m PEM -f ~/.ssh/id_rsa\n' +
+                   '• 确保私钥文件权限正确: chmod 600 私钥文件'
+    } else if (error.message && error.message.includes('Unsupported key format')) {
+      errorMessage = 'SSH 连接失败: 不支持的私钥格式。请使用以下命令转换私钥格式：\n' +
+                   'ssh-keygen -p -m PEM -f 私钥文件路径'
+    } else if (error.message && error.message.includes('ECONNREFUSED')) {
+      errorMessage = 'SSH 连接失败: 连接被拒绝，请检查主机地址和端口是否正确'
+    } else if (error.message && error.message.includes('ENOTFOUND')) {
+      errorMessage = 'SSH 连接失败: 无法解析主机名，请检查网络连接和主机地址'
+    } else if (error.message && error.message.includes('Authentication failure')) {
+      errorMessage = 'SSH 连接失败: 认证失败，请检查用户名、密码或私钥是否正确'
+    } else if (error.message && error.message.includes('timeout')) {
+      errorMessage = 'SSH 连接失败: 连接超时，请检查网络连接和防火墙设置'
+    }
+    
     return {
       success: false,
-      message: error.message || '连接失败'
+      message: errorMessage
     }
   }
 })
@@ -1503,8 +1544,30 @@ process.on('unhandledRejection', (reason, promise) => {
   // 在生产环境中，你可能想要记录错误并优雅地处理
 })
 
+// IPC 处理器 - 读取文件内容
+ipcMain.handle('fs:readFile', async (event, filePath) => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return {
+        success: false,
+        message: '文件不存在'
+      }
+    }
+    
+    const content = fs.readFileSync(filePath, 'utf8')
+    return {
+      success: true,
+      content: content
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
 // IPC 处理器 - 用编辑器打开文件
-const fs = require('fs')
 const { spawn, execFile } = require('child_process')
 const watchers = new Map() // 保存文件监听器
 

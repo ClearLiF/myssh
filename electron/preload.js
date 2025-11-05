@@ -239,6 +239,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
   
+  // 文件系统 API
+  fs: {
+    // 读取文件内容
+    readFile: (filePath) => ipcRenderer.invoke('fs:readFile', filePath)
+  },
+  
   // 文件对话框 API
   dialog: {
     // 打开文件

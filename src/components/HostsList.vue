@@ -150,12 +150,35 @@
                 show-password
               />
             </el-form-item>
-            <el-form-item v-if="hostForm.authType === 'privateKey'" label="私钥文件">
-              <el-input v-model="hostForm.privateKeyPath" placeholder="私钥文件路径">
-                <template #append>
-                  <el-button @click="selectPrivateKey">选择</el-button>
-                </template>
-              </el-input>
+            <el-form-item v-if="hostForm.authType === 'privateKey'" label="私钥内容" required>
+              <el-input 
+                v-model="hostForm.privateKeyContent" 
+                type="textarea"
+                :rows="6"
+                placeholder="请粘贴私钥内容，例如：&#10;-----BEGIN PRIVATE KEY-----&#10;MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...&#10;-----END PRIVATE KEY-----"
+              />
+              <div class="key-input-actions">
+                <el-button size="small" @click="selectPrivateKeyFile">
+                  从文件加载
+                </el-button>
+                <el-button size="small" @click="clearPrivateKey">
+                  清空
+                </el-button>
+              </div>
+              <!-- 实时显示私钥状态 -->
+              <div class="key-status" v-if="hostForm.authType === 'privateKey'">
+                <small>
+                  私钥状态: {{ hostForm.privateKeyContent ? `已加载 (${hostForm.privateKeyContent.length} 字符)` : '未加载' }}
+                </small>
+              </div>
+            </el-form-item>
+            <el-form-item v-if="hostForm.authType === 'privateKey'" label="私钥密码">
+              <el-input 
+                v-model="hostForm.privateKeyPassphrase" 
+                type="password" 
+                placeholder="私钥密码（可选）"
+                show-password
+              />
             </el-form-item>
             <el-form-item label="分组">
               <el-select v-model="hostForm.group" allow-create filterable placeholder="选择或新建分组">
@@ -226,8 +249,23 @@
       </el-tabs>
 
       <template #footer>
-        <el-button @click="hostDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveHost">保存</el-button>
+        <div class="dialog-footer">
+          <div class="left-actions">
+            <el-button 
+              type="info" 
+              @click="testConnection" 
+              :loading="testingConnection"
+              :disabled="!isHostFormValid"
+            >
+              <el-icon><Monitor /></el-icon>
+              测试连接
+            </el-button>
+          </div>
+          <div class="right-actions">
+            <el-button @click="hostDialogVisible = false">取消</el-button>
+            <el-button type="primary" @click="saveHost">保存</el-button>
+          </div>
+        </div>
       </template>
     </el-dialog>
 
@@ -315,6 +353,7 @@ const expandedGroups = ref(['default']) // 默认展开 default 分组
 const syncLoading = ref(false) // 同步加载状态
 const useCloud = ref(false) // 是否使用云端存储
 const toast = ref(null) // Toast 通知组件引用
+const testingConnection = ref(false) // 测试连接状态
 
 // 主机表单
 const hostForm = ref({
@@ -324,7 +363,8 @@ const hostForm = ref({
   username: '',
   authType: 'password',
   password: '',
-  privateKeyPath: '',
+  privateKeyContent: '',
+  privateKeyPassphrase: '',
   group: 'default', // 新增分组字段
   tunnels: [] // SSH隧道列表
 })
@@ -386,6 +426,25 @@ const getAllGroups = computed(() => {
   return Array.from(groups).sort()
 })
 
+// 主机表单验证
+const isHostFormValid = computed(() => {
+  const { name, host, username, authType, password, privateKeyContent } = hostForm.value
+  
+  // 基本字段验证
+  if (!name?.trim() || !host?.trim() || !username?.trim()) {
+    return false
+  }
+  
+  // 认证方式验证
+  if (authType === 'password') {
+    return !!password
+  } else if (authType === 'privateKey') {
+    return !!privateKeyContent?.trim()
+  }
+  
+  return false
+})
+
 // 获取主机图标颜色
 const getHostColor = (host) => {
   const colors = ['#409eff', '#67c23a', '#e6a23c', '#f56c6c', '#909399']
@@ -416,6 +475,7 @@ const loadHosts = async () => {
       if (result.success) {
         hosts.value = result.data || []
         console.log('已从云端加载主机列表:', hosts.value.length)
+        console.log('云端数据详情:', hosts.value)
         return
       } else {
         console.warn('从云端加载失败，尝试本地加载:', result.error)
@@ -429,6 +489,7 @@ const loadHosts = async () => {
       if (result.success) {
         hosts.value = result.connections
         console.log('已从本地加载主机列表:', hosts.value.length)
+        console.log('本地数据详情:', hosts.value)
       } else {
         console.error('加载主机列表失败:', result.message)
         hosts.value = []
@@ -457,9 +518,27 @@ const saveHosts = async () => {
       username: host.username,
       authType: host.authType,
       password: host.password,
-      privateKeyPath: host.privateKeyPath,
+      privateKeyContent: host.privateKeyContent,
+      privateKeyPassphrase: host.privateKeyPassphrase,
       group: host.group // 保存分组
     }))
+    
+    console.log('准备保存的主机配置:', serializedHosts)
+    
+    // 检查私钥内容是否被意外清空
+    serializedHosts.forEach((host, index) => {
+      if (host.authType === 'privateKey') {
+        console.log(`主机 ${index} (${host.name}) 私钥检查:`)
+        console.log('  - privateKeyContent 长度:', host.privateKeyContent ? host.privateKeyContent.length : 0)
+        console.log('  - privateKeyContent 是否为空字符串:', host.privateKeyContent === '')
+        console.log('  - privateKeyContent 是否为null:', host.privateKeyContent === null)
+        console.log('  - privateKeyContent 是否为undefined:', host.privateKeyContent === undefined)
+        
+        if (!host.privateKeyContent || host.privateKeyContent.trim() === '') {
+          console.warn('⚠️ 警告: 私钥内容为空，这可能导致连接失败')
+        }
+      }
+    })
 
     // 如果已登录，保存到云端
     if (useCloud.value && authAPI.isAuthenticated()) {
@@ -479,7 +558,7 @@ const saveHosts = async () => {
       const allSuccess = results.every(r => r.success)
 
       if (allSuccess) {
-        ElMessage.success('主机列表已同步到云端')
+        toast.value?.success('主机列表已同步到云端', '同步成功')
         // 重新加载以获取最新的 ID
         await loadHosts()
         return
@@ -512,7 +591,7 @@ const saveHosts = async () => {
 // 从云端同步
 const syncFromCloud = async () => {
   if (!authAPI.isAuthenticated()) {
-    ElMessage.warning('请先登录以使用云端同步功能')
+    toast.value?.warning('请先登录以使用云端同步功能', '登录提示')
     return
   }
 
@@ -523,13 +602,13 @@ const syncFromCloud = async () => {
     if (result.success) {
       hosts.value = result.data || []
       useCloud.value = true
-      ElMessage.success(`已同步 ${hosts.value.length} 个主机配置`)
+      toast.value?.success(`已同步 ${hosts.value.length} 个主机配置`, '同步成功')
     } else {
-      ElMessage.error('同步失败: ' + result.error)
+      toast.value?.error('同步失败: ' + result.error, '同步失败')
     }
   } catch (error) {
     console.error('同步失败:', error)
-    ElMessage.error('同步失败')
+    toast.value?.error('同步失败', '同步失败')
   } finally {
     syncLoading.value = false
   }
@@ -551,7 +630,8 @@ const resetHostForm = () => {
     username: '',
     authType: 'password',
     password: '',
-    privateKeyPath: '',
+    privateKeyContent: '',
+    privateKeyPassphrase: '',
     group: 'default', // 重置分组
     tunnels: [] // 重置隧道
   }
@@ -643,7 +723,7 @@ const handleTunnelTypeChange = () => {
 }
 
 // 保存主机
-const saveHost = () => {
+const saveHost = async () => {
   // 验证
   if (!hostForm.value.name || !hostForm.value.host || !hostForm.value.username) {
     toast.value?.warning('请填写必填项', '输入提示')
@@ -655,21 +735,31 @@ const saveHost = () => {
     return
   }
 
-  if (hostForm.value.authType === 'privateKey' && !hostForm.value.privateKeyPath) {
-    toast.value?.warning('请选择私钥文件', '输入提示')
+  if (hostForm.value.authType === 'privateKey' && !hostForm.value.privateKeyContent.trim()) {
+    toast.value?.warning('请输入私钥内容', '输入提示')
     return
+  }
+
+  // 验证私钥内容
+  if (hostForm.value.authType === 'privateKey') {
+    console.log('保存前私钥验证:')
+    console.log('  - privateKeyContent 长度:', hostForm.value.privateKeyContent ? hostForm.value.privateKeyContent.length : 0)
+    console.log('  - privateKeyContent 类型:', typeof hostForm.value.privateKeyContent)
+    console.log('  - privateKeyContent 前100字符:', hostForm.value.privateKeyContent ? hostForm.value.privateKeyContent.substring(0, 100) : 'null')
   }
 
   // 保存或更新
   if (editingHostIndex.value >= 0) {
     hosts.value[editingHostIndex.value] = { ...hostForm.value }
+    console.log('更新主机配置:', hosts.value[editingHostIndex.value])
     toast.value?.success('主机已更新', '更新成功')
   } else {
     hosts.value.push({ ...hostForm.value })
+    console.log('添加主机配置:', hostForm.value)
     toast.value?.success('主机已添加', '添加成功')
   }
 
-  saveHosts()
+  await saveHosts()
   hostDialogVisible.value = false
   resetHostForm()
 }
@@ -697,7 +787,10 @@ const handleContextMenuCommand = (command) => {
 const editHost = () => {
   if (selectedHostIndex.value >= 0) {
     editingHostIndex.value = selectedHostIndex.value
-    hostForm.value = { ...hosts.value[selectedHostIndex.value] }
+    const hostData = hosts.value[selectedHostIndex.value]
+    console.log('编辑主机 - 原始数据:', hostData)
+    hostForm.value = { ...hostData }
+    console.log('编辑主机 - 表单数据:', hostForm.value)
     hostDialogVisible.value = true
   }
 }
@@ -722,7 +815,7 @@ const deleteHost = async () => {
       if (useCloud.value && authAPI.isAuthenticated() && host.id) {
         const result = await sshListAPI.delete(host.id)
         if (result.success) {
-          ElMessage.success('主机已从云端删除')
+          toast.value?.success('主机已从云端删除', '删除成功')
         } else {
           console.warn('从云端删除失败:', result.error)
         }
@@ -743,31 +836,157 @@ const openConnection = (host) => {
 }
 
 // 选择私钥文件
-const selectPrivateKey = async () => {
+// 从文件加载私钥
+const selectPrivateKeyFile = async () => {
   if (window.electronAPI) {
     try {
       const result = await window.electronAPI.dialog.openFile({
         title: '选择私钥文件',
         filters: [
-          { name: '私钥文件', extensions: ['pem', 'key', 'rsa'] },
+          { name: '私钥文件', extensions: ['pem', 'key', 'rsa', 'ppk'] },
+          { name: 'PEM文件', extensions: ['pem'] },
+          { name: 'OpenSSH私钥', extensions: ['key', 'rsa'] },
           { name: '所有文件', extensions: ['*'] }
         ]
       })
 
       if (result.success) {
-        hostForm.value.privateKeyPath = result.filePath
+        console.log('选择的文件路径:', result.filePath)
+        // 读取文件内容
+        const fileContent = await window.electronAPI.fs.readFile(result.filePath)
+        console.log('文件读取结果:', fileContent)
+        
+        if (fileContent.success) {
+          console.log('文件内容长度:', fileContent.content ? fileContent.content.length : 0)
+          console.log('文件内容前100字符:', fileContent.content ? fileContent.content.substring(0, 100) : 'null')
+          
+          hostForm.value.privateKeyContent = fileContent.content
+          console.log('设置后 hostForm.privateKeyContent 长度:', hostForm.value.privateKeyContent ? hostForm.value.privateKeyContent.length : 0)
+          
+          toast.value?.success('私钥内容已加载', '加载成功')
+          
+          // 检查私钥格式并给出提示
+          const content = fileContent.content.toLowerCase()
+          if (content.includes('begin openssh private key')) {
+            toast.value?.info('检测到OpenSSH格式私钥，建议转换为PEM格式以获得更好兼容性', '格式提示')
+          } else if (content.includes('begin rsa private key') || content.includes('begin private key')) {
+            toast.value?.success('私钥格式正确', '格式验证')
+          } else {
+            toast.value?.warning('私钥格式可能不正确，请确保是有效的私钥文件', '格式警告')
+          }
+        } else {
+          console.error('读取文件失败:', fileContent)
+          toast.value?.error('读取文件失败：' + fileContent.message, '读取失败')
+        }
       }
     } catch (error) {
-      toast.value?.error('选择文件失败', '文件选择失败')
+      toast.value?.error('加载文件失败', '文件加载失败')
     }
   } else {
-    toast.value?.info('私钥文件选择功能需要在 Electron 环境中使用', '功能提示')
+    toast.value?.info('文件加载功能需要在 Electron 环境中使用', '功能提示')
   }
+}
+
+// 清空私钥内容
+const clearPrivateKey = () => {
+  console.log('清空前 privateKeyContent 长度:', hostForm.value.privateKeyContent ? hostForm.value.privateKeyContent.length : 0)
+  hostForm.value.privateKeyContent = ''
+  console.log('清空后 privateKeyContent 长度:', hostForm.value.privateKeyContent ? hostForm.value.privateKeyContent.length : 0)
+  toast.value?.info('私钥内容已清空', '清空成功')
+}
+
+// 测试连接
+const testConnection = async () => {
+  if (!isHostFormValid.value) {
+    toast.value?.warning('请先完善主机配置信息', '配置不完整')
+    return
+  }
+
+  testingConnection.value = true
+  
+  try {
+    if (window.electronAPI) {
+      // 创建测试配置
+      const testConfig = {
+        host: hostForm.value.host,
+        port: hostForm.value.port,
+        username: hostForm.value.username,
+        authType: hostForm.value.authType,
+        password: hostForm.value.password,
+        privateKeyContent: hostForm.value.privateKeyContent,
+        privateKeyPassphrase: hostForm.value.privateKeyPassphrase
+      }
+      
+      console.log('开始测试连接:', { host: testConfig.host, port: testConfig.port, username: testConfig.username, authType: testConfig.authType })
+      
+      const result = await window.electronAPI.ssh.connect(testConfig)
+      
+      if (result.success) {
+        toast.value?.success(`连接测试成功！连接ID: ${result.connectionId}`, '测试成功')
+        
+        // 测试成功后立即断开连接
+        try {
+          await window.electronAPI.ssh.disconnect(result.connectionId)
+          console.log('测试连接已断开')
+        } catch (disconnectError) {
+          console.warn('断开测试连接失败:', disconnectError)
+        }
+      } else {
+        toast.value?.error(`连接测试失败: ${result.message}`, '测试失败')
+      }
+    } else {
+      toast.value?.warning('连接测试功能需要在 Electron 环境中使用', '功能提示')
+    }
+  } catch (error) {
+    console.error('连接测试出错:', error)
+    toast.value?.error(`连接测试出错: ${error.message}`, '测试出错')
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+// 测试私钥内容设置
+const testPrivateKeyContent = () => {
+  console.log('=== 私钥内容测试 ===')
+  console.log('当前 hostForm.privateKeyContent:', hostForm.value.privateKeyContent)
+  
+  // 设置测试内容
+  const testContent = '-----BEGIN PRIVATE KEY-----\nTEST_CONTENT\n-----END PRIVATE KEY-----'
+  hostForm.value.privateKeyContent = testContent
+  
+  console.log('设置测试内容后:', hostForm.value.privateKeyContent)
+  console.log('内容是否匹配:', hostForm.value.privateKeyContent === testContent)
+}
+
+// 暴露测试函数到全局
+if (typeof window !== 'undefined') {
+  window.testPrivateKeyContent = testPrivateKeyContent
 }
 
 // 打开设置
 const openSettings = () => {
   emit('open-settings')
+}
+
+// 调试函数 - 检查私钥保存状态
+const debugPrivateKey = () => {
+  console.log('=== 私钥调试信息 ===')
+  console.log('当前主机列表:', hosts.value)
+  console.log('当前表单数据:', hostForm.value)
+  
+  hosts.value.forEach((host, index) => {
+    if (host.authType === 'privateKey') {
+      console.log(`主机 ${index} (${host.name}):`)
+      console.log('  - authType:', host.authType)
+      console.log('  - privateKeyContent 长度:', host.privateKeyContent ? host.privateKeyContent.length : 0)
+      console.log('  - privateKeyContent 前50字符:', host.privateKeyContent ? host.privateKeyContent.substring(0, 50) : 'null')
+    }
+  })
+}
+
+// 暴露调试函数到全局
+if (typeof window !== 'undefined') {
+  window.debugPrivateKey = debugPrivateKey
 }
 
 onMounted(async () => {
@@ -1094,6 +1313,48 @@ onMounted(async () => {
 
 .tunnels-panel :deep(.el-table__empty-text) {
   color: var(--text-secondary);
+}
+
+/* 私钥输入操作按钮 */
+.key-input-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.key-input-actions .el-button {
+  font-size: 12px;
+}
+
+.key-status {
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--el-color-info-light-9);
+  border-radius: 4px;
+  border-left: 3px solid var(--el-color-info);
+}
+
+.key-status small {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+/* 对话框底部布局 */
+.dialog-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.left-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.right-actions {
+  display: flex;
+  gap: 8px;
 }
 </style>
 

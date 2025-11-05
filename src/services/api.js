@@ -283,6 +283,28 @@ export const sshListAPI = {
       })
 
       if (data.success && data.queryResult && data.queryResult.list) {
+        console.log('云端原始数据:', data.queryResult.list)
+        
+        // 检查私钥相关字段
+        data.queryResult.list.forEach((item, index) => {
+          if (item.sshMethod === 'privateKey' || !item.sshPassword) {
+            console.log(`云端数据项 ${index} (${item.connectName}) 所有字段:`)
+            console.log('  完整对象:', item)
+            console.log('  - sshMethod:', item.sshMethod)
+            console.log('  - sshPrivateKeyUrl 长度:', item.sshPrivateKeyUrl ? item.sshPrivateKeyUrl.length : 0)
+            console.log('  - sshPrivateKeyUrl 类型:', typeof item.sshPrivateKeyUrl)
+            console.log('  - sshPrivateKeyUrl 前50字符:', item.sshPrivateKeyUrl ? item.sshPrivateKeyUrl.substring(0, 50) : 'null')
+            
+            // 检查所有可能的私钥字段名
+            const possibleKeyFields = ['sshPrivateKeyUrl', 'sshPrivateKeyContent', 'privateKeyContent', 'privateKey', 'sshPrivateKey', 'sshKey']
+            possibleKeyFields.forEach(field => {
+              if (item[field] !== undefined) {
+                console.log(`  - 发现字段 ${field}:`, typeof item[field], item[field] ? item[field].length : 0)
+              }
+            })
+          }
+        })
+        
         // 将后端字段映射到前端字段
         const mappedList = data.queryResult.list.map(item => ({
           id: item.id,
@@ -294,10 +316,23 @@ export const sshListAPI = {
           password: item.sshPassword,
           group: item.groupName,
           authType: item.sshMethod || (item.sshPassword ? 'password' : 'privateKey'),
-          privateKeyPath: item.sshPrivateKeyUrl,
+          privateKeyContent: item.sshPrivateKeyUrl || '',
           createTime: item.createTime,
           updateTime: item.updateTime
         }))
+        
+        console.log('映射后的数据:', mappedList)
+        
+        // 检查映射后的私钥字段
+        mappedList.forEach((item, index) => {
+          if (item.authType === 'privateKey') {
+            console.log(`映射后数据项 ${index} (${item.name}) 私钥字段:`)
+            console.log('  - authType:', item.authType)
+            console.log('  - privateKeyContent 长度:', item.privateKeyContent ? item.privateKeyContent.length : 0)
+            console.log('  - privateKeyContent 类型:', typeof item.privateKeyContent)
+          }
+        })
+        
         return { success: true, data: mappedList }
       } else {
         return { success: false, error: data.message || '获取列表失败' }
@@ -324,7 +359,7 @@ export const sshListAPI = {
         sshUsername: connection.username,
         sshPassword: connection.password,
         sshMethod: connection.authType || 'password',
-        sshPrivateKeyUrl: connection.privateKeyPath || null,
+        sshPrivateKeyUrl: connection.privateKeyContent || null,
         groupName: connection.group || null
       }
 
@@ -358,7 +393,7 @@ export const sshListAPI = {
         sshUsername: connection.username,
         sshPassword: connection.password,
         sshMethod: connection.authType || 'password',
-        sshPrivateKeyUrl: connection.privateKeyPath || null,
+        sshPrivateKeyUrl: connection.privateKeyContent || null,
         groupName: connection.group || null
       }
 

@@ -385,7 +385,8 @@ const connectSSH = async () => {
         username: props.connection.username,
         authType: props.connection.authType,
         password: props.connection.password,
-        privateKeyPath: props.connection.privateKeyPath,
+        privateKeyContent: props.connection.privateKeyContent,
+        privateKeyPassphrase: props.connection.privateKeyPassphrase,
         tunnels: props.connection.tunnels || []  // 传递端口转发配置
       }))
 

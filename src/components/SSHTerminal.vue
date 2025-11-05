@@ -159,19 +159,36 @@
         </el-row>
         
         <el-row v-if="sshConfig.authType === 'privateKey'">
-          <el-col :span="16">
-            <el-form-item label="私钥文件" required>
+          <el-col :span="24">
+            <el-form-item label="私钥内容" required>
               <el-input 
-                v-model="sshConfig.privateKeyPath" 
-                placeholder="私钥文件路径"
+                v-model="sshConfig.privateKeyContent" 
+                type="textarea"
+                :rows="8"
+                placeholder="请粘贴私钥内容，例如：&#10;-----BEGIN PRIVATE KEY-----&#10;MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC...&#10;-----END PRIVATE KEY-----"
                 :disabled="isConnected"
-              >
-                <template #append>
-                  <el-button @click="selectPrivateKey" :disabled="isConnected">
-                    选择文件
-                  </el-button>
-                </template>
-              </el-input>
+              />
+              <div class="key-input-actions">
+                <el-button size="small" @click="selectPrivateKeyFile" :disabled="isConnected">
+                  从文件加载
+                </el-button>
+                <el-button size="small" @click="clearPrivateKey" :disabled="isConnected">
+                  清空
+                </el-button>
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row v-if="sshConfig.authType === 'privateKey'">
+          <el-col :span="12">
+            <el-form-item label="私钥密码">
+              <el-input 
+                v-model="sshConfig.privateKeyPassphrase" 
+                type="password" 
+                placeholder="私钥密码（可选）"
+                :disabled="isConnected"
+                show-password
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -283,7 +300,8 @@ const sshConfig = ref({
   username: '',
   authType: 'password',
   password: '',
-  privateKeyPath: ''
+  privateKeyContent: '',
+  privateKeyPassphrase: ''
 })
 
 // 状态管理
@@ -317,13 +335,13 @@ const isElectronMode = computed(() => {
 
 // 表单验证
 const isFormValid = computed(() => {
-  const { host, username, authType, password, privateKeyPath } = sshConfig.value
+  const { host, username, authType, password, privateKeyContent } = sshConfig.value
   if (!host.trim() || !username.trim()) return false
   
   if (authType === 'password') {
     return !!password
   } else if (authType === 'privateKey') {
-    return !!privateKeyPath
+    return !!privateKeyContent.trim()
   }
   
   return false
@@ -354,7 +372,8 @@ const connectSSH = async () => {
         username: sshConfig.value.username,
         authType: sshConfig.value.authType,
         password: sshConfig.value.password,
-        privateKeyPath: sshConfig.value.privateKeyPath
+        privateKeyContent: sshConfig.value.privateKeyContent,
+        privateKeyPassphrase: sshConfig.value.privateKeyPassphrase
       }))
       
       const result = await window.electronAPI.ssh.connect(plainConfig)
@@ -666,7 +685,8 @@ const saveSavedConnections = async () => {
         username: conn.username,
         authType: conn.authType,
         password: conn.password,
-        privateKeyPath: conn.privateKeyPath
+        privateKeyContent: conn.privateKeyContent,
+        privateKeyPassphrase: conn.privateKeyPassphrase
       }))
       
       const result = await window.connectionAPI.saveConnections(serializedConnections)
@@ -710,7 +730,8 @@ const showNewConnectionDialog = async () => {
         username: '',
         authType: 'password',
         password: '',
-        privateKeyPath: ''
+        privateKeyContent: '',
+        privateKeyPassphrase: ''
       }
       savedConnections.value.push(newConnection)
       saveSavedConnections()
@@ -781,7 +802,8 @@ const deleteConnection = async (index) => {
         username: '',
         authType: 'password',
         password: '',
-        privateKeyPath: ''
+        privateKeyContent: '',
+        privateKeyPassphrase: ''
       }
     } else if (currentConnectionIndex.value > index) {
       currentConnectionIndex.value--
@@ -860,28 +882,52 @@ const loadConnection = async () => {
   }
 }
 
-// 选择私钥文件
-const selectPrivateKey = async () => {
+// 从文件加载私钥
+const selectPrivateKeyFile = async () => {
   if (window.electronAPI) {
     try {
       const result = await window.electronAPI.dialog.openFile({
         title: '选择私钥文件',
         filters: [
-          { name: '私钥文件', extensions: ['pem', 'key', 'rsa'] },
+          { name: '私钥文件', extensions: ['pem', 'key', 'rsa', 'ppk'] },
+          { name: 'PEM文件', extensions: ['pem'] },
+          { name: 'OpenSSH私钥', extensions: ['key', 'rsa'] },
           { name: '所有文件', extensions: ['*'] }
         ]
       })
       
       if (result.success) {
-        sshConfig.value.privateKeyPath = result.filePath
-        showMessage('私钥文件已选择', 'success')
+        // 读取文件内容
+        const fileContent = await window.electronAPI.fs.readFile(result.filePath)
+        if (fileContent.success) {
+          sshConfig.value.privateKeyContent = fileContent.content
+          showMessage('私钥内容已加载', 'success')
+          
+          // 检查私钥格式并给出提示
+          const content = fileContent.content.toLowerCase()
+          if (content.includes('begin openssh private key')) {
+            showMessage('检测到OpenSSH格式私钥，建议转换为PEM格式以获得更好兼容性', 'info')
+          } else if (content.includes('begin rsa private key') || content.includes('begin private key')) {
+            showMessage('私钥格式正确', 'success')
+          } else {
+            showMessage('私钥格式可能不正确，请确保是有效的私钥文件', 'warning')
+          }
+        } else {
+          showMessage('读取文件失败：' + fileContent.message, 'error')
+        }
       }
     } catch (error) {
-      showMessage('选择文件失败', 'error')
+      showMessage('加载文件失败', 'error')
     }
   } else {
-    showMessage('私钥文件选择功能需要在 Electron 环境中使用', 'info')
+    showMessage('文件加载功能需要在 Electron 环境中使用', 'info')
   }
+}
+
+// 清空私钥内容
+const clearPrivateKey = () => {
+  sshConfig.value.privateKeyContent = ''
+  showMessage('私钥内容已清空', 'info')
 }
 
 // 组件挂载和卸载
@@ -1171,6 +1217,17 @@ onUnmounted(() => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 私钥输入操作按钮 */
+.key-input-actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+}
+
+.key-input-actions .el-button {
+  font-size: 12px;
 }
 
 /* 响应式设计 */
