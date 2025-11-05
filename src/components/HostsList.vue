@@ -7,17 +7,28 @@
         <span>Hosts</span>
       </div>
       <div class="header-buttons">
-        <el-button 
-          type="primary" 
-          size="small" 
+        <el-tooltip content="从云端同步" placement="bottom">
+          <el-button
+            size="small"
+            circle
+            :loading="syncLoading"
+            @click="syncFromCloud"
+            title="从云端同步"
+          >
+            <el-icon><Refresh /></el-icon>
+          </el-button>
+        </el-tooltip>
+        <el-button
+          type="primary"
+          size="small"
           circle
           @click="showNewHostDialog"
           title="新增主机"
         >
           <el-icon><Plus /></el-icon>
         </el-button>
-        <el-button 
-          size="small" 
+        <el-button
+          size="small"
           circle
           @click="openSettings"
           title="应用设置"
@@ -148,10 +159,10 @@
             </el-form-item>
             <el-form-item label="分组">
               <el-select v-model="hostForm.group" allow-create filterable placeholder="选择或新建分组">
-                <el-option 
-                  v-for="group in getAllGroups" 
-                  :key="group" 
-                  :label="group" 
+                <el-option
+                  v-for="group in getAllGroups"
+                  :key="group"
+                  :label="group"
                   :value="group"
                 />
               </el-select>
@@ -278,7 +289,7 @@
         <el-button type="primary" @click="saveTunnel">确定</el-button>
       </template>
     </el-dialog>
-    
+
     <!-- Toast 通知组件 -->
     <ToastNotification ref="toast" />
   </div>
@@ -286,6 +297,9 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh } from '@element-plus/icons-vue'
+import { authAPI, sshListAPI } from '../services/api'
 import { ElMessageBox } from 'element-plus'
 import ToastNotification from './ToastNotification.vue'
 import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom } from '@element-plus/icons-vue'
@@ -300,6 +314,8 @@ const editingHostIndex = ref(-1)
 const selectedHost = ref(null)
 const selectedHostIndex = ref(-1)
 const expandedGroups = ref(['default']) // 默认展开 default 分组
+const syncLoading = ref(false) // 同步加载状态
+const useCloud = ref(false) // 是否使用云端存储
 const toast = ref(null) // Toast 通知组件引用
 
 // 主机表单
@@ -331,7 +347,7 @@ const tunnelForm = ref({
 const filteredGroups = computed(() => {
   // 先按分组分类
   const groupMap = new Map()
-  
+
   hosts.value.forEach(host => {
     const groupName = host.group || 'default'
     if (!groupMap.has(groupName)) {
@@ -339,27 +355,27 @@ const filteredGroups = computed(() => {
     }
     groupMap.get(groupName).push(host)
   })
-  
+
   // 再过滤搜索
   if (!searchKeyword.value) {
     return Array.from(groupMap, ([name, hosts]) => ({ name, hosts }))
       .sort((a, b) => a.name.localeCompare(b.name))
   }
-  
+
   const keyword = searchKeyword.value.toLowerCase()
   const filtered = Array.from(groupMap, ([name, hosts]) => {
     const filteredHosts = hosts.filter(host => {
       const hostName = (host.name || '').toLowerCase()
       const hostAddress = (host.host || '').toLowerCase()
       const username = (host.username || '').toLowerCase()
-      return hostName.includes(keyword) || 
-             hostAddress.includes(keyword) || 
+      return hostName.includes(keyword) ||
+             hostAddress.includes(keyword) ||
              username.includes(keyword)
     })
     return { name, hosts: filteredHosts }
   }).filter(group => group.hosts.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name))
-  
+
   return filtered
 })
 
@@ -394,11 +410,27 @@ const toggleGroup = (groupName) => {
 // 加载主机列表
 const loadHosts = async () => {
   try {
+    // 检查是否已登录且使用云端
+    if (authAPI.isAuthenticated()) {
+      useCloud.value = true
+      // 从云端加载
+      const result = await sshListAPI.getList()
+      if (result.success) {
+        hosts.value = result.data || []
+        console.log('已从云端加载主机列表:', hosts.value.length)
+        return
+      } else {
+        console.warn('从云端加载失败，尝试本地加载:', result.error)
+        useCloud.value = false
+      }
+    }
+
+    // 从本地加载
     if (window.connectionAPI) {
       const result = await window.connectionAPI.loadConnections()
       if (result.success) {
         hosts.value = result.connections
-        console.log('已加载主机列表:', hosts.value.length)
+        console.log('已从本地加载主机列表:', hosts.value.length)
       } else {
         console.error('加载主机列表失败:', result.message)
         hosts.value = []
@@ -418,19 +450,48 @@ const loadHosts = async () => {
 // 保存主机列表
 const saveHosts = async () => {
   try {
+    // 创建可序列化的副本，只包含需要的字段
+    const serializedHosts = hosts.value.map(host => ({
+      id: host.id,
+      name: host.name,
+      host: host.host,
+      port: host.port,
+      username: host.username,
+      authType: host.authType,
+      password: host.password,
+      privateKeyPath: host.privateKeyPath,
+      group: host.group // 保存分组
+    }))
+
+    // 如果已登录，保存到云端
+    if (useCloud.value && authAPI.isAuthenticated()) {
+      const savePromises = []
+
+      for (const host of serializedHosts) {
+        if (host.id) {
+          // 更新现有主机
+          savePromises.push(sshListAPI.update(host.id, host))
+        } else {
+          // 添加新主机
+          savePromises.push(sshListAPI.add(host))
+        }
+      }
+
+      const results = await Promise.all(savePromises)
+      const allSuccess = results.every(r => r.success)
+
+      if (allSuccess) {
+        ElMessage.success('主机列表已同步到云端')
+        // 重新加载以获取最新的 ID
+        await loadHosts()
+        return
+      } else {
+        console.warn('部分主机同步失败，尝试本地保存')
+      }
+    }
+
+    // 保存到本地
     if (window.connectionAPI) {
-      // 创建可序列化的副本，只包含需要的字段
-      const serializedHosts = hosts.value.map(host => ({
-        name: host.name,
-        host: host.host,
-        port: host.port,
-        username: host.username,
-        authType: host.authType,
-        password: host.password,
-        privateKeyPath: host.privateKeyPath,
-        group: host.group // 保存分组
-      }))
-      
       const result = await window.connectionAPI.saveConnections(serializedHosts)
       if (result.success) {
         toast.value?.success('主机列表已保存', '保存成功')
@@ -447,6 +508,32 @@ const saveHosts = async () => {
   } catch (error) {
     console.error('保存主机列表失败:', error)
     toast.value?.error('保存失败', '保存失败')
+  }
+}
+
+// 从云端同步
+const syncFromCloud = async () => {
+  if (!authAPI.isAuthenticated()) {
+    ElMessage.warning('请先登录以使用云端同步功能')
+    return
+  }
+
+  try {
+    syncLoading.value = true
+    const result = await sshListAPI.getList()
+
+    if (result.success) {
+      hosts.value = result.data || []
+      useCloud.value = true
+      ElMessage.success(`已同步 ${hosts.value.length} 个主机配置`)
+    } else {
+      ElMessage.error('同步失败: ' + result.error)
+    }
+  } catch (error) {
+    console.error('同步失败:', error)
+    ElMessage.error('同步失败')
+  } finally {
+    syncLoading.value = false
   }
 }
 
@@ -600,7 +687,7 @@ const handleContextMenuCommand = (command) => {
   const { action, host } = command
   selectedHostIndex.value = hosts.value.findIndex(h => h === host)
   selectedHost.value = host
-  
+
   if (action === 'edit') {
     editHost()
   } else if (action === 'delete') {
@@ -630,7 +717,19 @@ const deleteHost = async () => {
           type: 'warning'
         }
       )
-      
+
+      const host = hosts.value[selectedHostIndex.value]
+
+      // 如果使用云端且主机有 ID，从云端删除
+      if (useCloud.value && authAPI.isAuthenticated() && host.id) {
+        const result = await sshListAPI.delete(host.id)
+        if (result.success) {
+          ElMessage.success('主机已从云端删除')
+        } else {
+          console.warn('从云端删除失败:', result.error)
+        }
+      }
+
       hosts.value.splice(selectedHostIndex.value, 1)
       await saveHosts()
       toast.value?.success('主机已删除', '删除成功')
@@ -656,7 +755,7 @@ const selectPrivateKey = async () => {
           { name: '所有文件', extensions: ['*'] }
         ]
       })
-      
+
       if (result.success) {
         hostForm.value.privateKeyPath = result.filePath
       }

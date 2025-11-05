@@ -1,5 +1,114 @@
 <template>
   <div class="settings-tab">
+    <!-- 账户管理 -->
+    <el-card class="settings-card">
+      <template #header>
+        <div class="card-header">
+          <span>账户管理</span>
+        </div>
+      </template>
+
+      <el-form label-width="150px">
+        <el-form-item label="登录状态">
+          <el-tag v-if="isAuthenticated" type="success">已登录</el-tag>
+          <el-tag v-else type="info">未登录</el-tag>
+        </el-form-item>
+
+        <el-form-item v-if="isAuthenticated && userInfo" label="用户名">
+          <el-text>{{ userInfo.username || '未知' }}</el-text>
+        </el-form-item>
+
+        <el-form-item v-if="isAuthenticated && userInfo && userInfo.email" label="邮箱">
+          <el-text>{{ userInfo.email }}</el-text>
+        </el-form-item>
+
+        <el-divider />
+
+        <el-form-item label="API 地址">
+          <div class="path-input-group">
+            <el-input 
+              v-model="apiSettings.baseURL" 
+              placeholder="http://localhost:8080"
+              class="path-input"
+            />
+            <el-button type="primary" @click="saveApiConfig">
+              <el-icon><Check /></el-icon>
+              保存
+            </el-button>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="说明">
+          <el-text type="info">配置后端 API 的基础地址，用于云端同步 SSH 列表</el-text>
+        </el-form-item>
+
+        <el-divider />
+
+        <el-form-item label="自定义请求头">
+          <div class="headers-config">
+            <div 
+              v-for="(header, index) in customHeaders" 
+              :key="index"
+              class="header-item-row"
+            >
+              <el-input
+                v-model="header.key"
+                placeholder="请求头名称 (如: X-Custom-Key)"
+                style="width: 200px; margin-right: 8px;"
+                size="small"
+              />
+              <el-input
+                v-model="header.value"
+                placeholder="请求头值"
+                style="width: 200px; margin-right: 8px;"
+                size="small"
+              />
+              <el-button 
+                type="danger" 
+                size="small"
+                circle
+                @click="removeHeader(index)"
+              >
+                <el-icon><Delete /></el-icon>
+              </el-button>
+            </div>
+            
+            <el-button 
+              type="primary" 
+              size="small"
+              @click="addHeader"
+            >
+              <el-icon><Plus /></el-icon>
+              添加请求头
+            </el-button>
+          </div>
+        </el-form-item>
+
+        <el-form-item label="说明">
+          <el-text type="info">自定义请求头会添加到所有 API 请求中，常用于特殊认证或跨域配置</el-text>
+        </el-form-item>
+
+        <el-divider />
+
+        <el-form-item v-if="isAuthenticated">
+          <el-button type="danger" @click="handleLogout">
+            <el-icon><SwitchButton /></el-icon>
+            退出登录
+          </el-button>
+        </el-form-item>
+
+        <el-form-item v-if="!isAuthenticated">
+          <el-button type="primary" @click="showLogin">
+            <el-icon><User /></el-icon>
+            登录账号
+          </el-button>
+          <el-text type="info" style="margin-left: 12px;">
+            登录后可使用云端同步功能
+          </el-text>
+        </el-form-item>
+      </el-form>
+    </el-card>
+
     <el-card class="settings-card">
       <template #header>
         <div class="card-header">
@@ -173,8 +282,9 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Folder, Edit } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Folder, Edit, Check, SwitchButton, User, Plus, Delete } from '@element-plus/icons-vue'
+import { authAPI, apiConfig } from '../services/api'
 
 const settings = ref({
   connectionsPath: '', // 连接配置保存路径
@@ -184,6 +294,14 @@ const settings = ref({
   theme: 'dark', // 新增主题设置
   terminalFontSize: 14 // 终端字体大小设置
 })
+
+const apiSettings = ref({
+  baseURL: ''
+})
+
+const customHeaders = ref([])
+const isAuthenticated = ref(false)
+const userInfo = ref(null)
 
 // 加载设置
 const loadSettings = async () => {
@@ -443,12 +561,98 @@ const handleFontSizeChange = async (value) => {
   }, 500) // 500ms 防抖延迟
 }
 
+// 添加请求头
+const addHeader = () => {
+  customHeaders.value.push({ key: '', value: '' })
+}
+
+// 移除请求头
+const removeHeader = (index) => {
+  customHeaders.value.splice(index, 1)
+}
+
+// 保存 API 配置
+const saveApiConfig = () => {
+  if (!apiSettings.value.baseURL) {
+    ElMessage.warning('请输入 API 地址')
+    return
+  }
+
+  // 保存基础地址
+  apiConfig.saveBaseURL(apiSettings.value.baseURL)
+  
+  // 保存自定义请求头
+  const headersObj = {}
+  customHeaders.value.forEach(header => {
+    if (header.key && header.value) {
+      headersObj[header.key] = header.value
+    }
+  })
+  apiConfig.saveCustomHeaders(headersObj)
+  
+  ElMessage.success('API 配置已保存')
+}
+
+// 显示登录界面
+const showLogin = () => {
+  // 清除跳过登录的标记
+  localStorage.removeItem('skip_login')
+  // 刷新页面，显示登录界面
+  window.location.reload()
+}
+
+// 处理退出登录
+const handleLogout = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要退出登录吗？退出后将使用本地存储模式。',
+      '退出登录',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    authAPI.logout()
+    isAuthenticated.value = false
+    userInfo.value = null
+    ElMessage.success('已退出登录')
+  } catch {
+    // 用户取消
+  }
+}
+
+// 加载账户信息
+const loadAccountInfo = () => {
+  isAuthenticated.value = authAPI.isAuthenticated()
+  if (isAuthenticated.value) {
+    userInfo.value = authAPI.getUserInfo()
+  }
+  apiSettings.value.baseURL = apiConfig.baseURL
+  
+  // 加载自定义请求头
+  const headers = apiConfig.customHeaders || {}
+  customHeaders.value = Object.entries(headers).map(([key, value]) => ({
+    key,
+    value
+  }))
+}
+
 onMounted(async () => {
   await loadSettings()
+  loadAccountInfo()
+  
   // 应用保存的主题
   if (window.__app && window.__app.applyTheme) {
     window.__app.applyTheme(settings.value.theme)
   }
+
+  // 监听登出事件
+  window.addEventListener('auth:logout', () => {
+    isAuthenticated.value = false
+    userInfo.value = null
+  })
 })
 </script>
 
@@ -567,5 +771,15 @@ onMounted(async () => {
 
 .font-size-control :deep(.el-slider__input) {
   width: 120px;
+}
+
+.headers-config {
+  width: 100%;
+}
+
+.header-item-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
 }
 </style>
