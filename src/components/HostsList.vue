@@ -278,12 +278,16 @@
         <el-button type="primary" @click="saveTunnel">确定</el-button>
       </template>
     </el-dialog>
+    
+    <!-- Toast 通知组件 -->
+    <ToastNotification ref="toast" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
+import ToastNotification from './ToastNotification.vue'
 import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom } from '@element-plus/icons-vue'
 
 const emit = defineEmits(['open-connection', 'open-settings'])
@@ -296,6 +300,7 @@ const editingHostIndex = ref(-1)
 const selectedHost = ref(null)
 const selectedHostIndex = ref(-1)
 const expandedGroups = ref(['default']) // 默认展开 default 分组
+const toast = ref(null) // Toast 通知组件引用
 
 // 主机表单
 const hostForm = ref({
@@ -428,20 +433,20 @@ const saveHosts = async () => {
       
       const result = await window.connectionAPI.saveConnections(serializedHosts)
       if (result.success) {
-        ElMessage.success('主机列表已保存')
+        toast.value?.success('主机列表已保存', '保存成功')
         console.log('主机列表已保存')
       } else {
         console.error('保存主机列表失败:', result.message)
-        ElMessage.error('保存失败: ' + result.message)
+        toast.value?.error('保存失败: ' + result.message, '保存失败')
       }
     } else {
       // 降级到 localStorage
       localStorage.setItem('ssh-connections', JSON.stringify(hosts.value))
-      ElMessage.success('主机列表已保存')
+      toast.value?.success('主机列表已保存', '保存成功')
     }
   } catch (error) {
     console.error('保存主机列表失败:', error)
-    ElMessage.error('保存失败')
+    toast.value?.error('保存失败', '保存失败')
   }
 }
 
@@ -506,7 +511,7 @@ const deleteTunnel = (index) => {
   ).then(() => {
     if (!hostForm.value.tunnels) hostForm.value.tunnels = []
     hostForm.value.tunnels.splice(index, 1)
-    ElMessage.success('隧道已删除')
+    toast.value?.success('隧道已删除', '删除成功')
   }).catch(() => {})
 }
 
@@ -514,12 +519,12 @@ const deleteTunnel = (index) => {
 const saveTunnel = () => {
   // 验证
   if (!tunnelForm.value.name || !tunnelForm.value.listenPort) {
-    ElMessage.warning('请填写完整信息')
+    toast.value?.warning('请填写完整信息', '输入提示')
     return
   }
 
   if (tunnelForm.value.type !== 'dynamic' && (!tunnelForm.value.targetHost || !tunnelForm.value.targetPort)) {
-    ElMessage.warning('请填写目标地址和端口')
+    toast.value?.warning('请填写目标地址和端口', '输入提示')
     return
   }
 
@@ -530,11 +535,11 @@ const saveTunnel = () => {
   if (editingTunnelIndex.value >= 0) {
     // 编辑模式
     hostForm.value.tunnels[editingTunnelIndex.value] = { ...tunnelForm.value }
-    ElMessage.success('隧道已更新')
+    toast.value?.success('隧道已更新', '更新成功')
   } else {
     // 新建模式
     hostForm.value.tunnels.push({ ...tunnelForm.value })
-    ElMessage.success('隧道已添加')
+    toast.value?.success('隧道已添加', '添加成功')
   }
 
   tunnelDialogVisible.value = false
@@ -556,27 +561,27 @@ const handleTunnelTypeChange = () => {
 const saveHost = () => {
   // 验证
   if (!hostForm.value.name || !hostForm.value.host || !hostForm.value.username) {
-    ElMessage.warning('请填写必填项')
+    toast.value?.warning('请填写必填项', '输入提示')
     return
   }
 
   if (hostForm.value.authType === 'password' && !hostForm.value.password) {
-    ElMessage.warning('请输入密码')
+    toast.value?.warning('请输入密码', '输入提示')
     return
   }
 
   if (hostForm.value.authType === 'privateKey' && !hostForm.value.privateKeyPath) {
-    ElMessage.warning('请选择私钥文件')
+    toast.value?.warning('请选择私钥文件', '输入提示')
     return
   }
 
   // 保存或更新
   if (editingHostIndex.value >= 0) {
     hosts.value[editingHostIndex.value] = { ...hostForm.value }
-    ElMessage.success('主机已更新')
+    toast.value?.success('主机已更新', '更新成功')
   } else {
     hosts.value.push({ ...hostForm.value })
-    ElMessage.success('主机已添加')
+    toast.value?.success('主机已添加', '添加成功')
   }
 
   saveHosts()
@@ -628,7 +633,7 @@ const deleteHost = async () => {
       
       hosts.value.splice(selectedHostIndex.value, 1)
       await saveHosts()
-      ElMessage.success('主机已删除')
+      toast.value?.success('主机已删除', '删除成功')
     } catch {
       // 用户取消
     }
@@ -656,10 +661,10 @@ const selectPrivateKey = async () => {
         hostForm.value.privateKeyPath = result.filePath
       }
     } catch (error) {
-      ElMessage.error('选择文件失败')
+      toast.value?.error('选择文件失败', '文件选择失败')
     }
   } else {
-    ElMessage.info('私钥文件选择功能需要在 Electron 环境中使用')
+    toast.value?.info('私钥文件选择功能需要在 Electron 环境中使用', '功能提示')
   }
 }
 

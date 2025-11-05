@@ -136,15 +136,19 @@
         <div class="selection-overlay" ref="selectionOverlay"></div>
       </div>
     </div>
+    
+    <!-- Toast 通知组件 -->
+    <ToastNotification ref="toast" />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+// import { ElMessage } from 'element-plus' // 已替换为 ToastNotification
 import { SuccessFilled, Loading, Monitor, Connection } from '@element-plus/icons-vue'
 import CompactMonitor from './CompactMonitor.vue'
 import PortForwardPanel from './PortForwardPanel.vue'
+import ToastNotification from './ToastNotification.vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -171,6 +175,7 @@ const commandExecuting = ref(false)
 const isStreamingCommand = ref(false)
 const usePtyMode = ref(true) // 默认使用 PTY 模式
 const activeLeftTab = ref('monitor') // 左侧面板当前激活的Tab
+const toast = ref(null) // Toast 通知组件引用
 
 // PTY 相关
 const xtermContainer = ref(null)
@@ -293,7 +298,7 @@ const highlightSearch = () => {
   if (!searchText.value) {
     searchAddon.clearDecorations()
     // 关闭之前的搜索提示
-    ElMessage.closeAll()
+    // ElMessage.closeAll() // Toast 组件自动管理
     return
   }
 
@@ -303,20 +308,11 @@ const highlightSearch = () => {
     searchAddon.findNext(searchText.value)
 
     // 关闭之前的消息，避免频繁搜索时堆叠
-    ElMessage.closeAll()
-    ElMessage.info({
-      message: `已高亮搜索: "${searchText.value}"`,
-      type: 'info',
-      duration: 1500,
-      showClose: false
-    })
+    // ElMessage.closeAll() // Toast 组件自动管理
+    toast.value?.info(`已高亮搜索: "${searchText.value}"`, '搜索结果', 1500)
   } catch (err) {
-    ElMessage.closeAll()
-    ElMessage.error({
-      message: '搜索失败: 无效的搜索内容',
-      type: 'error',
-      duration: 1500
-    })
+    // ElMessage.closeAll() // Toast 组件自动管理
+    toast.value?.error('搜索失败: 无效的搜索内容', '搜索错误', 1500)
   }
 }
 
@@ -455,7 +451,7 @@ const connectSSH = async () => {
 
         currentPrompt.value = `${props.connection.username}@${props.connection.host}:~$ `
 
-        ElMessage.success('SSH 连接成功！')
+        toast.value?.success('SSH 连接成功！', '连接成功')
 
         // 始终初始化 xterm PTY 模式
         await initializePty()
@@ -474,7 +470,7 @@ const connectSSH = async () => {
         timestamp: new Date()
       })
 
-      ElMessage.success('SSH 连接成功！（模拟模式）')
+      toast.value?.success('SSH 连接成功！（模拟模式）', '连接成功')
       await nextTick()
       focusInput()
     }
@@ -484,7 +480,7 @@ const connectSSH = async () => {
       content: `❌ 连接失败: ${error.message}`,
       timestamp: new Date()
     })
-    ElMessage.error(`SSH 连接失败: ${error.message}`)
+    toast.value?.error(`SSH 连接失败: ${error.message}`, '连接失败')
   } finally {
     connecting.value = false
   }
@@ -661,21 +657,12 @@ const initializePty = async () => {
         currentSelection.value = selected // 更新预览
         if (selected) {
           // 关闭之前的消息，避免重复按复制键时堆叠
-          ElMessage.closeAll()
+          // ElMessage.closeAll() // Toast 组件自动管理
           navigator.clipboard.writeText(selected).then(() => {
-            ElMessage.success({
-              message: `已复制 ${selected.length} 个字符到剪贴板`,
-              type: 'success',
-              duration: 2000,
-              showClose: false
-            })
+            toast.value?.success(`已复制 ${selected.length} 个字符到剪贴板`, '复制成功', 2000)
           }).catch(err => {
             console.error('复制失败:', err)
-            ElMessage.error({
-              message: '复制失败，请重试',
-              type: 'error',
-              duration: 2000
-            })
+            toast.value?.error('复制失败，请重试', '复制错误', 2000)
           })
           return false // 阻止默认处理
         }
@@ -701,13 +688,8 @@ const initializePty = async () => {
           // 只在选择较长文本时显示提示，避免频繁弹出
           if (selected.length > 10) {
             // 关闭之前的消息，避免堆叠
-            ElMessage.closeAll()
-            ElMessage.info({
-              message: `已选择 ${selected.length} 个字符，按 Ctrl+Shift+C 复制`,
-              type: 'info',
-              duration: 1500,
-              showClose: false
-            })
+            // ElMessage.closeAll() // Toast 组件自动管理
+            toast.value?.info(`已选择 ${selected.length} 个字符，按 Ctrl+Shift+C 复制`, '选择提示', 1500)
           }
         } else {
           currentSelection.value = ''
@@ -787,18 +769,18 @@ const initializePty = async () => {
       // 监听 PTY 关闭
       window.electronAPI.ssh.onPtyClose((data) => {
         if (data.connectionId === connectionId.value) {
-          ElMessage.warning('PTY shell 已关闭')
+          toast.value?.warning('PTY shell 已关闭', 'PTY 状态')
           disconnectSSH()
         }
       })
 
-      ElMessage.success('PTY 终端已启动，支持 vim 等交互式命令！')
+      toast.value?.success('PTY 终端已启动，支持 vim 等交互式命令！', 'PTY 启动成功')
     } else {
       throw new Error(result.message)
     }
   } catch (error) {
     console.error('初始化 PTY 失败:', error)
-    ElMessage.error(`PTY 初始化失败: ${error.message}`)
+    toast.value?.error(`PTY 初始化失败: ${error.message}`, 'PTY 错误')
   }
 }
 
@@ -825,9 +807,9 @@ const disconnectSSH = async () => {
     isConnected.value = false
     connectionId.value = null
 
-    ElMessage.info('SSH 连接已断开')
+    toast.value?.info('SSH 连接已断开', '连接状态')
   } catch (error) {
-    ElMessage.error('断开连接时发生错误')
+    toast.value?.error('断开连接时发生错误', '断开连接失败')
   }
 }
 
@@ -1146,7 +1128,7 @@ const handleStreamEnd = (data) => {
 // 打开文件管理器
 const openFileManager = async () => {
   if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH 才能打开文件管理器')
+    toast.value?.warning('请先连接 SSH 才能打开文件管理器', '连接提示')
     return
   }
 
@@ -1159,7 +1141,7 @@ const openFileManager = async () => {
 // 打开进程监控
 const openProcessMonitor = () => {
   if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
+    toast.value?.warning('请先连接 SSH', '连接提示')
     return
   }
 
@@ -1171,7 +1153,7 @@ const openProcessMonitor = () => {
 // 打开网络监控
 const handleOpenNetworkMonitor = () => {
   if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
+    toast.value?.warning('请先连接 SSH', '连接提示')
     return
   }
 
@@ -1183,7 +1165,7 @@ const handleOpenNetworkMonitor = () => {
 // 打开 Docker 管理
 const openDockerManager = () => {
   if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
+    toast.value?.warning('请先连接 SSH', '连接提示')
     return
   }
 
@@ -1195,7 +1177,7 @@ const openDockerManager = () => {
 // 打开 Systemctl 管理
 const openSystemctlManager = () => {
   if (!isConnected.value) {
-    ElMessage.warning('请先连接 SSH')
+    toast.value?.warning('请先连接 SSH', '连接提示')
     return
   }
 
@@ -1208,29 +1190,16 @@ const openSystemctlManager = () => {
 const copyTerminalSelection = () => {
   const selected = terminal.getSelection();
   // 关闭之前的所有消息，避免堆叠
-  ElMessage.closeAll()
+  // ElMessage.closeAll() // Toast 组件自动管理
   if (selected) {
     navigator.clipboard.writeText(selected).then(() => {
-      ElMessage.success({
-        message: `已复制 ${selected.length} 个字符到剪贴板`,
-        type: 'success',
-        duration: 2000,
-        showClose: false
-      });
+      toast.value?.success(`已复制 ${selected.length} 个字符到剪贴板`, '复制成功', 2000);
     }).catch(err => {
       console.error('复制失败:', err);
-      ElMessage.error({
-        message: '复制失败，请检查权限',
-        type: 'error',
-        duration: 2000
-      });
+      toast.value?.error('复制失败，请检查权限', '复制错误', 2000);
     });
   } else {
-    ElMessage.warning({
-      message: '没有选中的文本。请用鼠标拖动选择文本，或按 Ctrl+Shift+C',
-      type: 'warning',
-      duration: 2500
-    });
+    toast.value?.warning('没有选中的文本。请用鼠标拖动选择文本，或按 Ctrl+Shift+C', '选择提示', 2500);
   }
 };
 

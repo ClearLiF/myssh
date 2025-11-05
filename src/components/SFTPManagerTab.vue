@@ -180,7 +180,15 @@
               @click="downloadFile(selectedFile)"
             >
               <el-icon><Download /></el-icon>
-              <span>下载</span>
+              <span>下载文件</span>
+            </div>
+            <div 
+              v-if="selectedFile.isDirectory" 
+              class="menu-item"
+              @click="downloadFolder(selectedFile)"
+            >
+              <el-icon><FolderOpened /></el-icon>
+              <span>下载文件夹</span>
             </div>
             <div 
               class="menu-item danger"
@@ -225,7 +233,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Refresh, Upload, FolderAdd, Folder, Document, Download, Delete, HomeFilled, Edit, DocumentCopy, EditPen, Box } from '@element-plus/icons-vue'
+import { Refresh, Upload, FolderAdd, Folder, Document, Download, Delete, HomeFilled, Edit, DocumentCopy, EditPen, Box, FolderOpened } from '@element-plus/icons-vue'
 import TransferManager from './TransferManager.vue'
 import ToastNotification from './ToastNotification.vue'
 
@@ -1013,6 +1021,216 @@ const downloadFile = async (file) => {
     }
   } catch (error) {
     toastRef.value?.error(`下载文件失败: ${error.message}`)
+  }
+}
+
+// 下载文件夹
+const downloadFolder = async (folder) => {
+  if (!props.connectionId) {
+    toastRef.value?.error('请先建立 SSH 连接')
+    return
+  }
+
+  if (!folder.isDirectory) {
+    toastRef.value?.warning('选中的不是文件夹')
+    return
+  }
+
+  try {
+    // 显示确认对话框
+    await ElMessageBox.confirm(
+      `确定要下载文件夹 "${folder.name}" 吗？这将递归下载整个文件夹及其所有内容。`,
+      '确认下载文件夹',
+      {
+        confirmButtonText: '开始下载',
+        cancelButtonText: '取消',
+        type: 'info'
+      }
+    )
+
+    // 选择保存位置
+    let savePath
+    
+    if (window.electronAPI && window.electronAPI.settings) {
+      const result = await window.electronAPI.settings.selectDownloadPath()
+      
+      if (!result || !result.success || !result.directoryPath) {
+        toastRef.value?.info('已取消下载')
+        return
+      }
+      
+      savePath = result.directoryPath
+    } else {
+      toastRef.value?.error('当前环境不支持文件夹下载')
+      return
+    }
+
+    // 开始下载文件夹
+    const folderPath = currentPath.value === '/' ? `/${folder.name}` : `${currentPath.value}/${folder.name}`
+    
+    toastRef.value?.info(`开始下载文件夹: ${folder.name}`, '下载开始')
+    
+    // 创建传输任务
+    let taskId
+    if (transferManagerRef.value) {
+      taskId = transferManagerRef.value.addTask({
+        type: 'download',
+        name: `📁 ${folder.name}`,
+        size: '计算中...',
+        status: 'active',
+        percentage: 0,
+        speed: '0 B/s'
+      })
+    }
+
+    // 递归下载文件夹
+    if (window.electronAPI && window.electronAPI.sftp) {
+      console.log(`开始下载文件夹: ${folder.name}`)
+      console.log(`远程路径: ${folderPath}`)
+      console.log(`本地路径: ${savePath}`)
+      
+      await downloadFolderRecursively(folderPath, savePath, folder.name, taskId)
+    } else {
+      if (taskId && transferManagerRef.value) {
+        transferManagerRef.value.updateTask(taskId, {
+          status: 'error',
+          percentage: 0
+        })
+      }
+      toastRef.value?.error('当前环境不支持文件夹下载')
+    }
+  } catch (error) {
+    if (error.message !== 'cancel') {
+      toastRef.value?.error(`下载文件夹失败: ${error.message}`)
+    }
+  }
+}
+
+// 递归下载文件夹的辅助函数
+const downloadFolderRecursively = async (remotePath, localPath, folderName, taskId, depth = 0) => {
+  try {
+    const indent = '  '.repeat(depth)
+    console.log(`${indent}开始下载文件夹: ${remotePath}`)
+    
+    // 更新进度显示
+    if (taskId && transferManagerRef.value) {
+      transferManagerRef.value.updateTask(taskId, {
+        status: 'active',
+        speed: `正在扫描: ${folderName}`
+      })
+    }
+    
+    // 创建本地文件夹
+    const localFolderPath = `${localPath}/${folderName}`
+    console.log(`${indent}本地路径: ${localFolderPath}`)
+    
+    // 获取远程文件夹内容
+    console.log(`${indent}正在获取文件夹内容...`)
+    const listResult = await Promise.race([
+      window.electronAPI.sftp.list(props.connectionId, remotePath),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('获取文件列表超时')), 30000)
+      )
+    ])
+    
+    if (!listResult.success) {
+      throw new Error(`无法读取文件夹内容: ${listResult.message}`)
+    }
+    
+    const files = listResult.files || []
+    console.log(`${indent}找到 ${files.length} 个项目`)
+    
+    let processedCount = 0
+    let downloadedFiles = 0
+    let downloadedFolders = 0
+    const totalCount = files.length
+    
+    // 遍历文件夹中的每个项目
+    for (const file of files) {
+      const remoteFilePath = remotePath === '/' ? `/${file.name}` : `${remotePath}/${file.name}`
+      const localFilePath = `${localFolderPath}/${file.name}`
+      
+      console.log(`${indent}处理项目 ${processedCount + 1}/${totalCount}: ${file.name} (${file.isDirectory ? '文件夹' : '文件'})`)
+      
+      if (file.isDirectory) {
+        // 递归下载子文件夹
+        console.log(`${indent}进入子文件夹: ${file.name}`)
+        try {
+          await downloadFolderRecursively(remoteFilePath, localFolderPath, file.name, taskId, depth + 1)
+          downloadedFolders++
+          console.log(`${indent}完成子文件夹: ${file.name}`)
+        } catch (error) {
+          console.error(`${indent}下载子文件夹失败: ${file.name}`, error.message)
+          toastRef.value?.warning(`跳过文件夹 ${file.name}: ${error.message}`)
+        }
+      } else {
+        // 下载文件
+        console.log(`${indent}下载文件: ${file.name} (${file.size || '未知大小'})`)
+        
+        try {
+          const downloadResult = await Promise.race([
+            window.electronAPI.sftp.download(
+              props.connectionId,
+              remoteFilePath,
+              localFilePath
+            ),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('文件下载超时')), 60000)
+            )
+          ])
+          
+          if (downloadResult.success) {
+            downloadedFiles++
+            console.log(`${indent}✓ 文件下载成功: ${file.name}`)
+          } else {
+            console.error(`${indent}✗ 下载文件失败: ${file.name}`, downloadResult.message)
+            toastRef.value?.warning(`跳过文件 ${file.name}: ${downloadResult.message}`)
+          }
+        } catch (error) {
+          console.error(`${indent}✗ 下载文件异常: ${file.name}`, error.message)
+          toastRef.value?.warning(`跳过文件 ${file.name}: ${error.message}`)
+        }
+      }
+      
+      processedCount++
+      
+      // 更新进度
+      if (taskId && transferManagerRef.value) {
+        const percentage = Math.round((processedCount / totalCount) * 100)
+        transferManagerRef.value.updateTask(taskId, {
+          status: 'active',
+          percentage: percentage,
+          speed: `${processedCount}/${totalCount} 项 (文件:${downloadedFiles} 文件夹:${downloadedFolders})`
+        })
+      }
+    }
+    
+    console.log(`${indent}完成文件夹: ${folderName} (处理了 ${processedCount} 个项目)`)
+    
+    // 如果这是顶级调用，标记为完成
+    if (depth === 0) {
+      console.log(`顶级文件夹下载完成: ${folderName}`)
+      if (taskId && transferManagerRef.value) {
+        transferManagerRef.value.updateTask(taskId, {
+          status: 'completed',
+          percentage: 100,
+          speed: `完成 - 文件:${downloadedFiles} 文件夹:${downloadedFolders}`
+        })
+      }
+      toastRef.value?.success(`文件夹下载成功: ${folderName} (${downloadedFiles} 个文件, ${downloadedFolders} 个文件夹)`, '下载完成')
+    }
+    
+  } catch (error) {
+    console.error(`${indent}文件夹下载失败: ${folderName}`, error.message)
+    
+    if (depth === 0 && taskId && transferManagerRef.value) {
+      transferManagerRef.value.updateTask(taskId, {
+        status: 'error',
+        percentage: 0,
+        speed: `失败: ${error.message}`
+      })
+    }
+    throw error
   }
 }
 
