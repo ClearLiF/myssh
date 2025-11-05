@@ -1,165 +1,311 @@
-# MySSH - SSH 管理工具
+# MySSH
 
-一个基于 Electron + Vue 3 + Element Plus 的现代化 SSH 管理工具，提供左侧菜单导航 + 右侧详情面板的布局设计。
+<div align="center">
 
-## 🚀 功能特性
+**一个现代化的 SSH 管理工具**
+
+基于 Electron + Vue 3 + Element Plus 构建的跨平台 SSH 客户端
+
+[功能特性](#功能特性) • [安装](#安装) • [使用](#使用) • [开发](#开发)
+
+</div>
+
+---
+
+## 📋 目录
+
+- [简介](#简介)
+- [功能特性](#功能特性)
+- [技术栈](#技术栈)
+- [安装](#安装)
+- [使用](#使用)
+- [开发](#开发)
+- [构建](#构建)
+- [项目结构](#项目结构)
+- [贡献](#贡献)
+- [许可证](#许可证)
+
+---
+
+## 简介
+
+MySSH 是一个功能强大的 SSH 管理工具，提供直观的图形界面来管理和连接远程服务器。它集成了终端、文件传输、系统监控等多种功能，让服务器管理变得更加简单高效。
+
+## ✨ 功能特性
 
 ### 核心功能
-- **SSH 终端**: 支持密码和私钥认证的 SSH 连接
-- **SFTP 文件传输**: 安全的文件上传下载管理
-- **脚本管理**: 创建、编辑、运行和管理各种脚本
-- **系统监控**: 实时监控系统资源使用情况
 
-### 技术特性
-- 🖥️ **跨平台**: 基于 Electron，支持 Windows、macOS、Linux
-- 🎨 **现代化 UI**: 使用 Element Plus 组件库，界面美观易用
-- ⚡ **高性能**: Vue 3 Composition API，响应式设计
-- 🔒 **安全性**: 支持 SSH 密钥认证，数据传输加密
-- 📱 **响应式**: 自适应布局，支持不同屏幕尺寸
+- 🔐 **SSH 连接管理** - 支持保存和管理多个 SSH 连接配置
+- 💻 **终端模拟** - 基于 xterm.js 的全功能终端，支持多标签页
+- 📁 **SFTP 文件管理** - 图形化的文件上传下载，支持拖拽操作
+- 📊 **系统监控** - 实时监控 CPU、内存、磁盘、网络等系统资源
 
-## 🛠️ 技术栈
+### 高级功能
 
-- **前端框架**: Vue 3 + Composition API
-- **UI 组件库**: Element Plus
-- **桌面应用**: Electron
-- **构建工具**: Vite
-- **SSH 库**: node-ssh
-- **开发语言**: JavaScript/TypeScript
+- 🌐 **网络监控** - 实时查看网络连接和流量统计
+- 🔧 **进程管理** - 查看和管理远程服务器进程
+- 🐳 **Docker 管理** - 管理 Docker 容器、镜像和网络
+- ⚙️ **Systemctl 服务管理** - 管理 systemd 服务
+- 🔀 **端口转发** - 支持本地和远程端口转发
+- 📝 **脚本管理** - 保存和执行常用脚本
+- 📦 **文件传输管理** - 后台传输队列，支持断点续传
 
-## 📦 安装和运行
+### 用户体验
 
-### 环境要求
-- Node.js 16.0 或更高版本
-- npm 或 yarn 包管理器
+- 🎨 **现代化界面** - 基于 Element Plus 的美观 UI
+- 🚀 **快速响应** - 流畅的操作体验
+- 💾 **数据持久化** - 自动保存连接配置和设置
+- 🔔 **消息通知** - 操作结果实时反馈
+- 🌓 **主题切换** - 支持浅色/深色主题（可扩展）
 
-### 安装依赖
+## 🛠 技术栈
+
+### 前端框架
+- **Electron** ^27.0.0 - 跨平台桌面应用框架
+- **Vue 3** ^3.3.4 - 渐进式 JavaScript 框架
+- **Element Plus** ^2.3.8 - Vue 3 组件库
+
+### 核心依赖
+- **xterm.js** ^5.5.0 - 终端模拟器
+  - @xterm/addon-fit - 自适应插件
+  - @xterm/addon-search - 搜索插件
+  - @xterm/addon-web-links - 链接识别插件
+- **node-ssh** ^13.1.0 - SSH2 客户端
+- **electron-store** ^8.1.0 - 数据持久化
+- **archiver** ^7.0.1 - 文件压缩
+
+### 构建工具
+- **Vite** ^4.4.9 - 下一代前端构建工具
+- **electron-builder** ^24.6.4 - Electron 应用打包工具
+
+## 📦 安装
+
+### 预编译版本（推荐）
+
+从 [Releases](https://github.com/yourusername/myssh/releases) 页面下载适合你操作系统的安装包：
+
+- **macOS**: `MySSH-1.0.0-arm64.dmg` 或 `MySSH-1.0.0-arm64-mac.zip`
+- **Windows**: `MySSH-Setup-1.0.0.exe`
+- **Linux**: `MySSH-1.0.0.AppImage` 或 `myssh_1.0.0_amd64.deb`
+
+### 从源码安装
+
+#### 前置要求
+
+- Node.js >= 16.0.0
+- npm 或 pnpm
+
+#### 安装步骤
+
 ```bash
+# 克隆仓库
+git clone https://github.com/yourusername/myssh.git
+cd myssh
+
+# 安装依赖
 npm install
-```
+# 或使用 pnpm
+pnpm install
 
-### 开发模式
-```bash
-# 启动 Vite 开发服务器
-npm run dev
-
-# 在另一个终端启动 Electron
+# 启动开发模式
 npm run electron:dev
 ```
 
-### 构建应用
-```bash
-# 构建 Vue 应用
-npm run build
+## 🚀 使用
 
-# 构建 Electron 应用
+### 添加 SSH 连接
+
+1. 点击左侧 **"新建连接"** 按钮
+2. 填写连接信息：
+   - 主机名/IP 地址
+   - 端口（默认 22）
+   - 用户名
+   - 认证方式（密码或密钥）
+3. 点击 **"保存"** 保存连接配置
+
+### 连接到服务器
+
+1. 在左侧连接列表中选择已保存的连接
+2. 点击 **"连接"** 按钮或双击连接项
+3. 连接成功后会打开终端标签页
+
+### SFTP 文件管理
+
+1. 连接到服务器后，点击 **"SFTP"** 标签页
+2. 左侧显示本地文件，右侧显示远程文件
+3. 支持的操作：
+   - 拖拽上传/下载文件
+   - 右键菜单：删除、重命名、创建文件夹等
+   - 双击文件进行编辑
+
+### 系统监控
+
+1. 点击 **"系统监控"** 标签页
+2. 查看实时的系统资源使用情况：
+   - CPU 使用率
+   - 内存使用情况
+   - 磁盘空间
+   - 网络流量
+
+### Docker 管理
+
+1. 点击 **"Docker"** 标签页
+2. 管理容器：启动、停止、重启、删除
+3. 管理镜像：拉取、删除、导出
+4. 查看容器日志和统计信息
+
+## 🔧 开发
+
+### 开发模式
+
+```bash
+# 启动 Vite 开发服务器 + Electron
+npm run electron:dev
+```
+
+这个命令会：
+1. 启动 Vite 开发服务器（端口 5173）
+2. 等待服务器就绪后启动 Electron
+3. 支持热更新
+
+### 仅启动 Web 开发服务器
+
+```bash
+npm run dev
+```
+
+### 调试
+
+- **主进程调试**：在 `electron/main.js` 中添加断点
+- **渲染进程调试**：按 `Cmd+Option+I` (macOS) 或 `Ctrl+Shift+I` (Windows/Linux) 打开开发者工具
+
+## 📦 构建
+
+### 构建前端资源
+
+```bash
+npm run build
+```
+
+构建结果位于 `dist/` 目录
+
+### 构建桌面应用
+
+```bash
 npm run electron:build
 ```
 
-## 🏗️ 项目结构
+打包后的应用位于 `dist-electron/` 目录
+
+### 配置构建选项
+
+编辑 `package.json` 中的 `build` 字段来自定义构建配置：
+
+```json
+{
+  "build": {
+    "appId": "com.example.myssh",
+    "productName": "MySSH",
+    "mac": {
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
+  }
+}
+```
+
+## 📁 项目结构
 
 ```
 myssh/
-├── src/                    # Vue 源代码
-│   ├── components/        # Vue 组件
-│   │   ├── SSHTerminal.vue    # SSH 终端组件
-│   │   ├── SFTPManager.vue    # SFTP 文件管理组件
-│   │   ├── ScriptManager.vue  # 脚本管理组件
-│   │   └── SystemMonitor.vue  # 系统监控组件
-│   ├── App.vue            # 主应用组件
-│   └── main.js            # Vue 应用入口
-├── electron/              # Electron 主进程
-│   ├── main.js            # 主进程文件
-│   └── preload.js         # 预加载脚本
-├── package.json           # 项目配置
-├── vite.config.js         # Vite 配置
-└── README.md              # 项目说明
+├── electron/              # Electron 主进程代码
+│   ├── main.js           # 主进程入口
+│   └── preload.js        # 预加载脚本
+├── src/                  # Vue 源代码
+│   ├── components/       # Vue 组件
+│   │   ├── SSHTerminalTab.vue      # SSH 终端
+│   │   ├── SFTPManagerTab.vue      # SFTP 文件管理
+│   │   ├── SystemMonitor.vue       # 系统监控
+│   │   ├── NetworkMonitorTab.vue   # 网络监控
+│   │   ├── ProcessMonitorTab.vue   # 进程管理
+│   │   ├── DockerManagerTab.vue    # Docker 管理
+│   │   ├── SystemctlManagerTab.vue # Systemctl 管理
+│   │   ├── PortForwardPanel.vue    # 端口转发
+│   │   ├── ScriptManager.vue       # 脚本管理
+│   │   └── ...
+│   ├── assets/           # 静态资源
+│   ├── App.vue           # 根组件
+│   └── main.js           # 应用入口
+├── connections/          # 连接配置存储
+├── dist/                 # 前端构建输出
+├── dist-electron/        # Electron 打包输出
+├── index.html            # HTML 模板
+├── package.json          # 项目配置
+└── vite.config.js        # Vite 配置
 ```
 
-## 🎯 使用说明
+## 🤝 贡献
 
-### SSH 连接
-1. 在左侧菜单选择 "SSH 终端"
-2. 填写连接信息（主机、端口、用户名、密码/私钥）
-3. 点击"连接"按钮建立 SSH 连接
-4. 在终端中输入命令并执行
+欢迎贡献代码、报告问题或提出新功能建议！
 
-### 文件传输
-1. 选择 "文件传输" 菜单
-2. 配置 SFTP 连接信息
-3. 连接成功后可以浏览本地和远程文件
-4. 使用拖拽或按钮进行文件上传下载
-
-### 脚本管理
-1. 选择 "脚本管理" 菜单
-2. 创建新脚本或导入现有脚本
-3. 编辑脚本内容并保存
-4. 点击"运行"执行脚本
-
-### 系统监控
-1. 选择 "系统监控" 菜单
-2. 查看实时系统资源使用情况
-3. 监控 CPU、内存、磁盘、网络状态
-4. 查看进程列表和详细信息
-
-## 🔧 开发指南
-
-### 添加新功能
-1. 在 `src/components/` 目录下创建新的 Vue 组件
-2. 在 `src/App.vue` 中添加菜单项和组件引用
-3. 在 `electron/main.js` 中添加相应的 IPC 处理器
-4. 在 `electron/preload.js` 中暴露新的 API
-
-### 自定义样式
-- 使用 Element Plus 的主题系统
-- 在组件中使用 scoped 样式
-- 支持 CSS 变量和主题切换
-
-### 国际化支持
-- 项目支持多语言配置
-- 可以轻松添加新的语言包
-
-## 🚧 开发计划
-
-### 近期计划
-- [ ] 添加连接历史记录
-- [ ] 支持多标签页终端
-- [ ] 集成代码编辑器
-- [ ] 添加连接池管理
-
-### 长期计划
-- [ ] 支持 Docker 容器管理
-- [ ] 添加数据库管理功能
-- [ ] 集成 CI/CD 工具
-- [ ] 支持插件系统
-
-## 🤝 贡献指南
-
-欢迎提交 Issue 和 Pull Request！
+### 贡献流程
 
 1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+2. 创建你的特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交你的改动 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开 Pull Request
+5. 开启一个 Pull Request
+
+### 开发规范
+
+- 遵循 Vue 3 和 Electron 最佳实践
+- 保持代码风格一致
+- 添加必要的注释
+- 确保代码可以正常构建和运行
+
+## 🐛 问题反馈
+
+如果你发现了 bug 或有功能建议，请在 [Issues](https://github.com/yourusername/myssh/issues) 页面提交。
+
+提交 Issue 时请包含：
+- 详细的问题描述
+- 复现步骤
+- 预期行为
+- 实际行为
+- 截图（如果适用）
+- 系统环境信息
 
 ## 📄 许可证
 
 本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情
 
-## 🙏 致谢
+---
 
-- [Vue.js](https://vuejs.org/) - 渐进式 JavaScript 框架
-- [Element Plus](https://element-plus.org/) - Vue 3 组件库
-- [Electron](https://www.electronjs.org/) - 跨平台桌面应用框架
-- [node-ssh](https://github.com/steelbrain/node-ssh) - Node.js SSH 客户端
+## 🌟 致谢
 
-## 📞 联系方式
+感谢以下开源项目：
 
-如有问题或建议，请通过以下方式联系：
+- [Electron](https://www.electronjs.org/)
+- [Vue.js](https://vuejs.org/)
+- [Element Plus](https://element-plus.org/)
+- [xterm.js](https://xtermjs.org/)
+- [node-ssh](https://github.com/steelbrain/node-ssh)
 
-- 提交 GitHub Issue
-- 发送邮件至：[your-email@example.com]
+## 📧 联系方式
+
+- 作者：Your Name
+- 邮箱：your.email@example.com
+- 项目主页：https://github.com/yourusername/myssh
 
 ---
 
-**注意**: 这是一个开发中的项目，某些功能可能还在开发中。请在生产环境中谨慎使用。
+<div align="center">
+
+**如果这个项目对你有帮助，请给一个 ⭐️ Star 支持一下！**
+
+</div>
