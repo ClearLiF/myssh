@@ -265,6 +265,54 @@ export const authAPI = {
   // 检查是否已登录
   isAuthenticated() {
     return apiConfig.isAuthenticated()
+  },
+
+  // 更新用户的 otherInfo 字段
+  async updateUserOtherInfo(otherInfo) {
+    try {
+      const userInfo = apiConfig.userInfo
+      if (!userInfo || !userInfo.id) {
+        return { success: false, error: '未登录或用户信息不存在' }
+      }
+
+      // 将 otherInfo 转换为 JSON 字符串
+      const otherInfoStr = typeof otherInfo === 'string' ? otherInfo : JSON.stringify(otherInfo)
+
+      const data = await apiService.put('/sass/sshUser/update', {
+        id: userInfo.id,
+        username: userInfo.username,
+        otherInfo: otherInfoStr
+      })
+
+      if (data.success) {
+        // 更新本地用户信息
+        userInfo.otherInfo = otherInfoStr
+        apiConfig.saveUserInfo(userInfo)
+        return { success: true, data }
+      } else {
+        return { success: false, error: data.message || '更新失败' }
+      }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
+  },
+
+  // 获取用户的 otherInfo 字段（解析后的对象）
+  getUserOtherInfo() {
+    const userInfo = apiConfig.userInfo
+    if (!userInfo || !userInfo.otherInfo) {
+      return {}
+    }
+
+    try {
+      if (typeof userInfo.otherInfo === 'string') {
+        return JSON.parse(userInfo.otherInfo)
+      }
+      return userInfo.otherInfo
+    } catch (error) {
+      console.error('解析 otherInfo 失败:', error)
+      return {}
+    }
   }
 }
 
@@ -306,20 +354,38 @@ export const sshListAPI = {
         })
         
         // 将后端字段映射到前端字段
-        const mappedList = data.queryResult.list.map(item => ({
-          id: item.id,
-          userId: item.userId,
-          name: item.connectName,
-          host: item.ip,
-          port: item.port,
-          username: item.sshUsername,
-          password: item.sshPassword,
-          group: item.groupName,
-          authType: item.sshMethod || (item.sshPassword ? 'password' : 'privateKey'),
-          privateKeyContent: item.sshPrivateKeyUrl || '',
-          createTime: item.createTime,
-          updateTime: item.updateTime
-        }))
+        const mappedList = data.queryResult.list.map(item => {
+          // 解析 otherInfo 获取 tunnels
+          let tunnels = []
+          if (item.otherInfo && typeof item.otherInfo === 'string') {
+            try {
+              const otherInfo = JSON.parse(item.otherInfo)
+              tunnels = otherInfo.portForwarding || []
+              console.log(`📥 解析 ${item.connectName} 的 otherInfo:`)
+              console.log('  - 端口转发数量:', tunnels.length)
+            } catch (error) {
+              console.error(`解析 ${item.connectName} 的 otherInfo 失败:`, error)
+              tunnels = []
+            }
+          }
+          
+          return {
+            id: item.id,
+            userId: item.userId,
+            name: item.connectName,
+            host: item.ip,
+            port: item.port,
+            username: item.sshUsername,
+            password: item.sshPassword,
+            group: item.groupName,
+            authType: item.sshMethod || (item.sshPassword ? 'password' : 'privateKey'),
+            privateKeyContent: item.sshPrivateKeyUrl || '',
+            otherInfo: item.otherInfo || null,  // 保留原始 otherInfo
+            tunnels: tunnels,  // 解析后的端口转发配置
+            createTime: item.createTime,
+            updateTime: item.updateTime
+          }
+        })
         
         console.log('映射后的数据:', mappedList)
         
@@ -360,8 +426,12 @@ export const sshListAPI = {
         sshPassword: connection.password,
         sshMethod: connection.authType || 'password',
         sshPrivateKeyUrl: connection.privateKeyContent || null,
-        groupName: connection.group || null
+        groupName: connection.group || null,
+        otherInfo: connection.otherInfo || null  // 添加 otherInfo 字段
       }
+
+      console.log('🔼 添加主机到云端:', payload.connectName)
+      console.log('  - otherInfo:', payload.otherInfo)
 
       const data = await apiService.post('/sass/sshUserConnectList/create', payload)
       
@@ -394,8 +464,12 @@ export const sshListAPI = {
         sshPassword: connection.password,
         sshMethod: connection.authType || 'password',
         sshPrivateKeyUrl: connection.privateKeyContent || null,
-        groupName: connection.group || null
+        groupName: connection.group || null,
+        otherInfo: connection.otherInfo || null  // 添加 otherInfo 字段
       }
+
+      console.log('🔄 更新云端主机:', payload.connectName, '(ID:', id, ')')
+      console.log('  - otherInfo:', payload.otherInfo)
 
       const data = await apiService.put('/sass/sshUserConnectList/update', payload)
       

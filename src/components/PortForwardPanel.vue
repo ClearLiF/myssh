@@ -104,7 +104,7 @@
       </div>
     </div>
 
-    <!-- 刷新按钮 -->
+    <!-- 刷新和保存按钮 -->
     <div v-if="tunnels && tunnels.length > 0" class="panel-footer">
       <el-button
         text
@@ -116,6 +116,18 @@
         <el-icon><Refresh /></el-icon>
         <span>刷新状态</span>
       </el-button>
+      <el-button
+        v-if="connection"
+        type="primary"
+        size="small"
+        @click="saveTunnelsToConfig"
+        :loading="isSaving"
+        class="save-btn"
+        title="将当前端口转发配置保存到主机配置中"
+      >
+        <el-icon><DocumentCopy /></el-icon>
+        <span>保存到配置</span>
+      </el-button>
     </div>
   </div>
 </template>
@@ -126,18 +138,25 @@ import { ElMessage } from 'element-plus'
 import {
   Connection,
   Refresh,
-  Loading
+  Loading,
+  DocumentCopy
 } from '@element-plus/icons-vue'
+import { sshListAPI, authAPI } from '../services/api'
 
 const props = defineProps({
   connectionId: {
     type: String,
     required: true
+  },
+  connection: {
+    type: Object,
+    default: null
   }
 })
 
 const tunnels = ref([])
 const isCheckingAll = ref(false)
+const isSaving = ref(false)
 let checkInterval = null
 
 // 获取端口转发列表
@@ -268,6 +287,118 @@ const getTunnelStatusText = (tunnel) => {
   if (tunnel.checking) return '检测中...'
   if (tunnel.isConnected) return '已连接'
   return '未连接'
+}
+
+// 保存端口转发配置到主机配置
+const saveTunnelsToConfig = async () => {
+  if (!props.connection) {
+    ElMessage.warning('无法保存：缺少主机配置信息')
+    return
+  }
+
+  isSaving.value = true
+
+  try {
+    // 清理隧道列表，移除运行时状态
+    const cleanTunnels = tunnels.value.map(t => ({
+      name: t.name,
+      type: t.type,
+      listenHost: t.listenHost,
+      listenPort: t.listenPort,
+      targetHost: t.targetHost,
+      targetPort: t.targetPort
+    }))
+
+    console.log('💾 保存端口转发到主机配置:')
+    console.log('  - 主机:', props.connection.name)
+    console.log('  - 端口转发数量:', cleanTunnels.length)
+    console.log('  - 配置:', cleanTunnels)
+
+    // 准备更新的主机配置
+    const updatedConnection = {
+      ...props.connection,
+      tunnels: cleanTunnels
+    }
+
+    // 准备 otherInfo
+    const otherInfo = {
+      portForwarding: cleanTunnels
+    }
+
+    const serializedHost = {
+      id: updatedConnection.id,
+      name: updatedConnection.name,
+      host: updatedConnection.host,
+      port: updatedConnection.port,
+      username: updatedConnection.username,
+      authType: updatedConnection.authType,
+      password: updatedConnection.password,
+      privateKeyContent: updatedConnection.privateKeyContent,
+      privateKeyPassphrase: updatedConnection.privateKeyPassphrase,
+      group: updatedConnection.group,
+      otherInfo: JSON.stringify(otherInfo)
+    }
+
+    // 保存到云端或本地
+    let saved = false
+
+    // 尝试云端保存
+    if (authAPI.isAuthenticated() && updatedConnection.id) {
+      console.log('  → 云端：更新主机 ID:', updatedConnection.id)
+      const result = await sshListAPI.update(updatedConnection.id, serializedHost)
+      if (result.success) {
+        console.log('  ✅ 云端保存成功')
+        ElMessage.success('端口转发配置已保存到云端')
+        saved = true
+      } else {
+        console.warn('  ❌ 云端保存失败:', result.error)
+      }
+    }
+
+    // 如果云端保存失败或没有登录，尝试本地保存
+    if (!saved && window.connectionAPI) {
+      console.log('  → 本地：保存配置')
+      
+      // 需要加载整个主机列表
+      const loadResult = await window.connectionAPI.loadConnections()
+      if (loadResult.success) {
+        const connections = loadResult.connections || []
+        
+        // 找到当前主机并更新
+        const index = connections.findIndex(c => 
+          c.host === updatedConnection.host && 
+          c.port === updatedConnection.port &&
+          c.username === updatedConnection.username
+        )
+        
+        if (index >= 0) {
+          connections[index] = serializedHost
+          
+          // 保存整个列表
+          const saveResult = await window.connectionAPI.saveConnections(connections)
+          if (saveResult.success) {
+            console.log('  ✅ 本地保存成功')
+            ElMessage.success('端口转发配置已保存到本地')
+            saved = true
+          } else {
+            console.error('  ❌ 本地保存失败:', saveResult.message)
+          }
+        } else {
+          console.warn('  ⚠️ 未找到匹配的主机配置')
+          ElMessage.warning('未找到对应的主机配置')
+        }
+      }
+    }
+
+    if (!saved) {
+      ElMessage.error('保存失败，请检查日志')
+    }
+  } catch (error) {
+    console.error('保存端口转发配置失败:', error)
+    ElMessage.error('保存失败: ' + error.message)
+  } finally {
+    isSaving.value = false
+  }
 }
 
 // 监听connectionId变化
@@ -596,7 +727,9 @@ onUnmounted(() => {
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   flex-shrink: 0;
   box-sizing: border-box;
 }
@@ -614,6 +747,17 @@ onUnmounted(() => {
 }
 
 .refresh-btn .el-icon {
+  margin-right: 4px;
+  font-size: 12px;
+}
+
+.save-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+}
+
+.save-btn .el-icon {
   margin-right: 4px;
   font-size: 12px;
 }

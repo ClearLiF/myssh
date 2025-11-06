@@ -125,6 +125,7 @@
             </template>
             <PortForwardPanel
               :connection-id="connectionId"
+              :connection="props.connection"
             />
           </el-tab-pane>
         </el-tabs>
@@ -135,7 +136,122 @@
         <!-- 自定义选择高亮层 -->
         <div class="selection-overlay" ref="selectionOverlay"></div>
       </div>
+
+      <!-- 右侧脚本面板 -->
+      <div v-if="isConnected" class="right-panel" :class="{ collapsed: rightPanelCollapsed }">
+        <div class="panel-header">
+          <div class="panel-title">
+            <el-icon><Document /></el-icon>
+            <span>脚本列表</span>
+          </div>
+          <el-button 
+            size="small" 
+            text 
+            @click="rightPanelCollapsed = !rightPanelCollapsed"
+            class="collapse-btn"
+          >
+            <el-icon>
+              <DArrowRight v-if="rightPanelCollapsed" />
+              <DArrowLeft v-else />
+            </el-icon>
+          </el-button>
+        </div>
+        
+        <div v-if="!rightPanelCollapsed" class="panel-content">
+          <div class="scripts-list">
+            <div class="scripts-header">
+              <el-button 
+                type="primary" 
+                size="small" 
+                @click="openScriptManager"
+                style="width: 100%;"
+              >
+                <el-icon><Plus /></el-icon>
+                <span>管理脚本</span>
+              </el-button>
+            </div>
+            
+            <el-empty v-if="scripts.length === 0" description="暂无脚本" :image-size="60" />
+            
+            <div v-else class="script-items">
+              <div 
+                v-for="script in scripts" 
+                :key="script.id" 
+                class="script-item"
+                @click="selectScript(script)"
+              >
+                <div class="script-item-header">
+                  <span class="script-item-name">{{ script.name }}</span>
+                  <el-tag :type="getScriptTypeTag(script.type)" size="small">
+                    {{ script.type }}
+                  </el-tag>
+                </div>
+                <div class="script-item-desc">{{ script.description || '暂无描述' }}</div>
+                <div class="script-item-actions">
+                  <el-button 
+                    size="small" 
+                    type="primary"
+                    @click.stop="runScriptInTerminal(script)"
+                  >
+                    <el-icon><CaretRight /></el-icon>
+                    运行
+                  </el-button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
+    
+    <!-- 脚本运行对话框 -->
+    <el-dialog
+      v-model="showScriptDialog"
+      title="运行脚本"
+      width="600px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="selectedScript">
+        <el-form label-width="120px">
+          <el-form-item label="脚本名称">
+            <span>{{ selectedScript.name }}</span>
+          </el-form-item>
+          
+          <div v-if="selectedScript.params && selectedScript.params.length > 0">
+            <el-divider content-position="left">参数配置</el-divider>
+            <el-form-item 
+              v-for="param in selectedScript.params" 
+              :key="param.name"
+              :label="param.name"
+            >
+              <el-input 
+                v-model="scriptParamValues[param.name]"
+                :placeholder="param.description || `请输入${param.name}`"
+              />
+              <div class="param-hint" v-if="param.defaultValue">
+                默认值: {{ param.defaultValue }}
+              </div>
+            </el-form-item>
+          </div>
+        </el-form>
+        
+        <div class="script-preview">
+          <el-divider content-position="left">脚本预览</el-divider>
+          <el-input
+            :model-value="getProcessedScriptContent()"
+            type="textarea"
+            :rows="8"
+            readonly
+            class="script-content-preview"
+          />
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="showScriptDialog = false">取消</el-button>
+        <el-button type="primary" @click="executeScriptInTerminal">执行</el-button>
+      </template>
+    </el-dialog>
     
     <!-- Toast 通知组件 -->
     <ToastNotification ref="toast" />
@@ -145,10 +261,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 // import { ElMessage } from 'element-plus' // 已替换为 ToastNotification
-import { SuccessFilled, Loading, Monitor, Connection } from '@element-plus/icons-vue'
+import { SuccessFilled, Loading, Monitor, Connection, Document, DArrowLeft, DArrowRight, CaretRight, Plus } from '@element-plus/icons-vue'
 import CompactMonitor from './CompactMonitor.vue'
 import PortForwardPanel from './PortForwardPanel.vue'
 import ToastNotification from './ToastNotification.vue'
+import { authAPI } from '../services/api'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
@@ -176,6 +293,13 @@ const isStreamingCommand = ref(false)
 const usePtyMode = ref(true) // 默认使用 PTY 模式
 const activeLeftTab = ref('monitor') // 左侧面板当前激活的Tab
 const toast = ref(null) // Toast 通知组件引用
+
+// 右侧脚本面板
+const rightPanelCollapsed = ref(false)
+const scripts = ref([])
+const selectedScript = ref(null)
+const showScriptDialog = ref(false)
+const scriptParamValues = ref({})
 
 // PTY 相关
 const xtermContainer = ref(null)
@@ -377,6 +501,11 @@ const connectSSH = async () => {
 
   try {
     if (window.electronAPI) {
+      console.log('🔌 SSHTerminalTab 准备连接:')
+      console.log('  - props.connection:', props.connection.name)
+      console.log('  - props.connection.tunnels:', props.connection.tunnels)
+      console.log('  - tunnels 数量:', (props.connection.tunnels || []).length)
+      
       // 使用 JSON 序列化/反序列化来创建纯数据对象，去除 Vue reactive 代理
       // 这可以防止 "An object could not be cloned" 错误
       const plainConfig = JSON.parse(JSON.stringify({
@@ -389,6 +518,9 @@ const connectSSH = async () => {
         privateKeyPassphrase: props.connection.privateKeyPassphrase,
         tunnels: props.connection.tunnels || []  // 传递端口转发配置
       }))
+      
+      console.log('  - plainConfig.tunnels:', plainConfig.tunnels)
+      console.log('  - plainConfig.tunnels 数量:', plainConfig.tunnels.length)
 
       const result = await window.electronAPI.ssh.connect(plainConfig)
       if (result.success) {
@@ -1187,6 +1319,144 @@ const openSystemctlManager = () => {
   })
 }
 
+// ============ 脚本管理相关函数 ============
+
+// 加载脚本列表
+const loadScripts = () => {
+  try {
+    if (!authAPI.isAuthenticated()) {
+      // 未登录时从本地存储加载
+      const localScripts = localStorage.getItem('local_scripts')
+      if (localScripts) {
+        scripts.value = JSON.parse(localScripts)
+      }
+      return
+    }
+
+    // 已登录从用户 otherInfo 加载
+    const otherInfo = authAPI.getUserOtherInfo()
+    if (otherInfo.script && Array.isArray(otherInfo.script)) {
+      scripts.value = otherInfo.script
+      console.log('✅ 从云端加载脚本:', scripts.value.length, '个')
+    } else {
+      scripts.value = []
+    }
+  } catch (error) {
+    console.error('加载脚本失败:', error)
+  }
+}
+
+// 获取脚本类型标签样式
+const getScriptTypeTag = (type) => {
+  const typeMap = {
+    shell: 'primary',
+    python: 'success',
+    javascript: 'warning',
+    command: '',
+    other: 'info'
+  }
+  return typeMap[type] || 'info'
+}
+
+// 打开脚本管理器
+const openScriptManager = () => {
+  // 触发打开脚本管理器标签页的自定义事件（在 App.vue 中监听）
+  window.dispatchEvent(new CustomEvent('request-open-script-manager'))
+}
+
+// 选择脚本
+const selectScript = (script) => {
+  selectedScript.value = JSON.parse(JSON.stringify(script)) // 深拷贝
+}
+
+// 运行脚本
+const runScriptInTerminal = (script) => {
+  selectedScript.value = JSON.parse(JSON.stringify(script)) // 深拷贝
+  
+  // 初始化参数值
+  scriptParamValues.value = {}
+  if (script.params && script.params.length > 0) {
+    script.params.forEach(param => {
+      scriptParamValues.value[param.name] = param.defaultValue || ''
+    })
+    // 有参数，显示对话框
+    showScriptDialog.value = true
+  } else {
+    // 无参数，直接执行
+    executeScriptInTerminal()
+  }
+}
+
+// 获取处理后的脚本内容（替换参数）
+const getProcessedScriptContent = () => {
+  if (!selectedScript.value) return ''
+  
+  let processed = selectedScript.value.content
+  
+  // 替换参数
+  for (let paramName in scriptParamValues.value) {
+    const value = scriptParamValues.value[paramName]
+    const regex = new RegExp(`\\$\\{${paramName}\\}`, 'g')
+    processed = processed.replace(regex, value)
+  }
+  
+  return processed
+}
+
+// 在终端中执行脚本
+const executeScriptInTerminal = async () => {
+  if (!isConnected.value || !ptyReady.value) {
+    toast.value?.warning('请先连接 SSH', '连接提示')
+    return
+  }
+
+  showScriptDialog.value = false
+  
+  const processedScript = getProcessedScriptContent()
+  
+  // 在终端中显示脚本标题
+  terminal.writeln('\r\n\x1b[1;32m========== 执行脚本: ' + selectedScript.value.name + ' ==========\x1b[0m\r')
+  
+  // 将脚本按行拆分
+  const lines = processedScript.split('\n').filter(line => {
+    const trimmed = line.trim()
+    // 过滤空行和注释行（但保留 shebang）
+    return trimmed && (trimmed.startsWith('#!') || !trimmed.startsWith('#'))
+  })
+  
+  if (!window.electronAPI || !window.electronAPI.ssh || !connectionId.value) {
+    toast.value?.error('SSH API 不可用', '执行错误')
+    return
+  }
+
+  try {
+    // 逐行执行命令
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim()
+      
+      // 跳过 shebang 行
+      if (line.startsWith('#!')) {
+        continue
+      }
+      
+      // 将命令发送到 PTY（就像用户在终端输入一样）
+      window.electronAPI.ssh.ptyWrite(connectionId.value, line + '\r')
+      
+      // 短暂延迟，让命令执行和输出显示完整
+      await new Promise(resolve => setTimeout(resolve, 500))
+    }
+    
+    terminal.writeln('\r\n\x1b[1;32m========== 脚本执行完成 ==========\x1b[0m\r')
+    toast.value?.success('脚本执行完成', '执行成功')
+  } catch (error) {
+    console.error('执行脚本失败:', error)
+    terminal.writeln('\r\n\x1b[1;31m脚本执行失败: ' + error.message + '\x1b[0m\r')
+    toast.value?.error('脚本执行失败: ' + error.message, '执行错误')
+  }
+}
+
+// ============ 脚本管理相关函数结束 ============
+
 // 复制终端选中的文本
 const copyTerminalSelection = () => {
   const selected = terminal.getSelection();
@@ -1237,12 +1507,21 @@ onMounted(() => {
     attributes: true,
     attributeFilter: ['data-theme']
   })
+
+  // 加载脚本列表
+  loadScripts()
+
+  // 监听脚本更新事件
+  window.addEventListener('scripts-updated', loadScripts)
 })
 
 onUnmounted(() => {
   if (isConnected.value) {
     disconnectSSH()
   }
+
+  // 移除事件监听
+  window.removeEventListener('scripts-updated', loadScripts)
 
   // 移除监听器
   if (window.electronAPI && window.electronAPI.ssh) {
@@ -2015,6 +2294,130 @@ defineExpose({
     opacity: 1;
     transform: scale(1);
   }
+}
+
+/* 右侧脚本面板 */
+.right-panel {
+  flex-shrink: 0;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border-color-light);
+  background: var(--bg-secondary);
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.right-panel.collapsed {
+  width: 40px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.collapse-btn {
+  padding: 4px;
+  min-height: auto;
+}
+
+.panel-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.scripts-list {
+  padding: 12px;
+}
+
+.scripts-header {
+  margin-bottom: 12px;
+}
+
+.script-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.script-item {
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.script-item:hover {
+  border-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+  transform: translateY(-1px);
+}
+
+.script-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.script-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-item-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+}
+
+.script-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.param-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.script-content-preview {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+}
+
+.script-preview {
+  margin-top: 16px;
 }
 
 </style>

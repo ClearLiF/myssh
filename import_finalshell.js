@@ -15,6 +15,11 @@ function decryptFinalShellPassword(encryptedPassword) {
 
 // 将FinalShell配置转换为MySSH格式
 function convertFinalShellToMySSH(finalShellConfig, groupName = '') {
+  // 准备 otherInfo 对象
+  const otherInfo = {
+    portForwarding: [] // FinalShell 的端口转发配置可以在这里添加
+  };
+
   const config = {
     name: finalShellConfig.name || finalShellConfig.host,
     host: finalShellConfig.host,
@@ -24,7 +29,8 @@ function convertFinalShellToMySSH(finalShellConfig, groupName = '') {
     password: '',
     privateKeyContent: '',
     privateKeyPassphrase: '',
-    group: groupName // 添加分组信息
+    group: groupName, // 添加分组信息
+    otherInfo: JSON.stringify(otherInfo) // 添加其他信息字段
   };
 
   // 处理密码

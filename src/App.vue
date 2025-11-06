@@ -28,7 +28,11 @@
                 Hosts
               </span>
             </template>
-            <HostsList @open-connection="handleOpenConnection" @open-settings="handleOpenSettings" />
+            <HostsList 
+              @open-connection="handleOpenConnection" 
+              @open-settings="handleOpenSettings"
+              @open-script-manager="handleOpenScriptManager"
+            />
           </el-tab-pane>
 
           <!-- 其他动态标签页 -->
@@ -78,6 +82,9 @@
             <SettingsTab
               v-else-if="tab.type === 'settings'"
             />
+            <ScriptManager
+              v-else-if="tab.type === 'script-manager'"
+            />
           </el-tab-pane>
         </el-tabs>
       </el-main>
@@ -86,7 +93,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { Monitor } from '@element-plus/icons-vue'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import LoginRegister from './components/LoginRegister.vue'
@@ -98,6 +105,7 @@ import ProcessMonitorTab from './components/ProcessMonitorTab.vue'
 import NetworkMonitorTab from './components/NetworkMonitorTab.vue'
 import DockerManagerTab from './components/DockerManagerTab.vue'
 import SystemctlManagerTab from './components/SystemctlManagerTab.vue'
+import ScriptManager from './components/ScriptManager.vue'
 import { authAPI } from './services/api'
 
 // 认证状态
@@ -233,10 +241,17 @@ onMounted(async () => {
 
   // 监听登出事件
   window.addEventListener('auth:logout', handleLogout)
+  
+  // 监听打开脚本管理器事件
+  window.addEventListener('request-open-script-manager', handleOpenScriptManager)
 })
 
 // 处理打开连接
 const handleOpenConnection = (connection) => {
+  console.log('📂 App.vue 接收到连接:', connection.name)
+  console.log('  - connection.tunnels:', connection.tunnels)
+  console.log('  - tunnels 数量:', (connection.tunnels || []).length)
+  
   // 每次都创建新标签页，允许对同一主机打开多个连接
   const newTabName = `tab-${++tabIndex}`
   const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -352,6 +367,24 @@ const handleOpenSettings = () => {
   })
   activeTabName.value = newTabName
 }
+
+// 处理打开脚本管理器
+const handleOpenScriptManager = () => {
+  const newTabName = `script-manager-${++tabIndex}`
+  
+  openTabs.value.push({
+    name: newTabName,
+    label: '📜 脚本管理',
+    type: 'script-manager'  // 标记为脚本管理器标签页
+  })
+  activeTabName.value = newTabName
+}
+
+// 清理事件监听
+onBeforeUnmount(() => {
+  window.removeEventListener('auth:logout', handleLogout)
+  window.removeEventListener('request-open-script-manager', handleOpenScriptManager)
+})
 
 // 暴露主题管理函数供 SettingsTab 使用
 window.__app = {

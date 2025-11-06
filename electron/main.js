@@ -25,7 +25,7 @@ async function createWindow() {
       enableRemoteModule: false,
       preload: path.join(__dirname, 'preload.js')
     },
-    // icon: path.join(__dirname, 'assets/icon.png'),  // 图标文件可能不存在
+    icon: path.join(__dirname, '../src/public/logo.jpg'),
     titleBarStyle: 'default',
     show: false,  // 等待加载完成后再显示
     center: true,  // 居中显示
@@ -48,8 +48,10 @@ async function createWindow() {
   try {
     await mainWindow.loadURL('http://localhost:5173')
     console.log('开发服务器加载成功')
-    // 打开开发者工具
-    mainWindow.webContents.openDevTools()
+    // 仅在开发环境打开开发者工具
+    if (!app.isPackaged) {
+      mainWindow.webContents.openDevTools()
+    }
   } catch (error) {
     console.error('无法连接到开发服务器，尝试加载生产文件...', error.message)
     try {

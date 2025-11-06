@@ -1187,7 +1187,7 @@ const startLogsStream = async () => {
       logsStreamId = result.streamId
 
       // 监听日志流数据
-      window.electronAPI.ssh.onLogsStream((data) => {
+      window.electronAPI.ssh.onDockerLogsStream((data) => {
         if (data.streamId === logsStreamId && logsStreaming.value) {
           containerLogs.value += data.data
           // 自动滚动到底部
@@ -1200,14 +1200,14 @@ const startLogsStream = async () => {
       })
 
       // 监听日志流结束
-      window.electronAPI.ssh.onLogsStreamEnd((data) => {
+      window.electronAPI.ssh.onDockerLogsStreamEnd((data) => {
         if (data.streamId === logsStreamId) {
           console.log('日志流已结束')
         }
       })
 
       // 监听日志流错误
-      window.electronAPI.ssh.onLogsStreamError((data) => {
+      window.electronAPI.ssh.onDockerLogsStreamError((data) => {
         if (data.streamId === logsStreamId) {
           console.error('日志流错误:', data.error)
           ElMessage.error('日志流错误: ' + data.error)
@@ -1254,9 +1254,7 @@ const stopLogsStream = async () => {
 
   // 移除监听器
   if (window.electronAPI) {
-    window.electronAPI.ssh.removeLogsStreamListener()
-    window.electronAPI.ssh.removeLogsStreamEndListener()
-    window.electronAPI.ssh.removeLogsStreamErrorListener()
+    window.electronAPI.ssh.removeDockerLogsStreamListener()
   }
 }
 

@@ -650,13 +650,35 @@ const formatOutput = (content) => {
   return escaped.replace(/\n/g, '<br>')
 }
 
+// 解析连接的 otherInfo 字段
+const parseConnectionOtherInfo = (conn) => {
+  try {
+    // 如果已经有 tunnels 字段（API 层已解析），就不需要再解析了
+    if (conn.tunnels && Array.isArray(conn.tunnels)) {
+      return conn
+    }
+    
+    // 否则尝试从 otherInfo 解析
+    if (conn.otherInfo && typeof conn.otherInfo === 'string') {
+      const otherInfo = JSON.parse(conn.otherInfo)
+      conn.tunnels = otherInfo.portForwarding || []
+    } else if (!conn.tunnels) {
+      conn.tunnels = []
+    }
+  } catch (error) {
+    console.error('解析 otherInfo 失败:', error, conn)
+    conn.tunnels = []
+  }
+  return conn
+}
+
 // 从文件系统加载连接列表
 const loadSavedConnections = async () => {
   try {
     if (window.connectionAPI) {
       const result = await window.connectionAPI.loadConnections()
       if (result.success) {
-        savedConnections.value = result.connections
+        savedConnections.value = (result.connections || []).map(parseConnectionOtherInfo)
         console.log('已加载连接配置:', savedConnections.value.length)
       } else {
         console.error('加载连接配置失败:', result.message)
@@ -665,7 +687,7 @@ const loadSavedConnections = async () => {
     } else {
       // 降级到 localStorage
       const connections = JSON.parse(localStorage.getItem('ssh-connections') || '[]')
-      savedConnections.value = connections
+      savedConnections.value = connections.map(parseConnectionOtherInfo)
     }
   } catch (error) {
     console.error('加载连接配置失败:', error)
@@ -678,16 +700,24 @@ const saveSavedConnections = async () => {
   try {
     if (window.connectionAPI) {
       // 创建可序列化的副本，只包含需要的字段
-      const serializedConnections = savedConnections.value.map(conn => ({
-        name: conn.name,
-        host: conn.host,
-        port: conn.port,
-        username: conn.username,
-        authType: conn.authType,
-        password: conn.password,
-        privateKeyContent: conn.privateKeyContent,
-        privateKeyPassphrase: conn.privateKeyPassphrase
-      }))
+      const serializedConnections = savedConnections.value.map(conn => {
+        // 准备 otherInfo 对象
+        const otherInfo = {
+          portForwarding: conn.tunnels || []
+        }
+        
+        return {
+          name: conn.name,
+          host: conn.host,
+          port: conn.port,
+          username: conn.username,
+          authType: conn.authType,
+          password: conn.password,
+          privateKeyContent: conn.privateKeyContent,
+          privateKeyPassphrase: conn.privateKeyPassphrase,
+          otherInfo: JSON.stringify(otherInfo) // 保存端口转发等其他信息
+        }
+      })
       
       const result = await window.connectionAPI.saveConnections(serializedConnections)
       if (result.success) {

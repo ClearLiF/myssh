@@ -37,6 +37,16 @@
         >
           <el-icon><Plus /></el-icon>
         </el-button>
+        <el-tooltip content="脚本管理" placement="bottom">
+          <el-button
+            size="small"
+            circle
+            @click="openScriptManager"
+            title="脚本管理"
+          >
+            <el-icon><Document /></el-icon>
+          </el-button>
+        </el-tooltip>
         <el-button
           size="small"
           circle
@@ -358,12 +368,12 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh, Upload } from '@element-plus/icons-vue'
+import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh, Upload, Document } from '@element-plus/icons-vue'
 import { authAPI, sshListAPI } from '../services/api'
 import ToastNotification from './ToastNotification.vue'
 import ImportFinalShellDialog from './ImportFinalShellDialog.vue'
 
-const emit = defineEmits(['open-connection', 'open-settings'])
+const emit = defineEmits(['open-connection', 'open-settings', 'open-script-manager'])
 
 // 数据
 const hosts = ref([])
@@ -497,7 +507,7 @@ const loadHosts = async () => {
       // 从云端加载
       const result = await sshListAPI.getList()
       if (result.success) {
-        hosts.value = result.data || []
+        hosts.value = (result.data || []).map(parseHostOtherInfo)
         console.log('已从云端加载主机列表:', hosts.value.length)
         console.log('云端数据详情:', hosts.value)
         return
@@ -511,7 +521,7 @@ const loadHosts = async () => {
     if (window.connectionAPI) {
       const result = await window.connectionAPI.loadConnections()
       if (result.success) {
-        hosts.value = result.connections
+        hosts.value = (result.connections || []).map(parseHostOtherInfo)
         console.log('已从本地加载主机列表:', hosts.value.length)
         console.log('本地数据详情:', hosts.value)
       } else {
@@ -522,7 +532,7 @@ const loadHosts = async () => {
       // 降级到 localStorage
       const saved = localStorage.getItem('ssh-connections')
       if (saved) {
-        hosts.value = JSON.parse(saved)
+        hosts.value = JSON.parse(saved).map(parseHostOtherInfo)
       }
     }
   } catch (error) {
@@ -530,11 +540,39 @@ const loadHosts = async () => {
   }
 }
 
-// 保存主机列表
-const saveHosts = async () => {
+// 解析主机的 otherInfo 字段
+const parseHostOtherInfo = (host) => {
   try {
-    // 创建可序列化的副本，只包含需要的字段
-    const serializedHosts = hosts.value.map(host => ({
+    // 如果已经有 tunnels 字段（API 层已解析），就不需要再解析了
+    if (host.tunnels && Array.isArray(host.tunnels)) {
+      console.log(`✅ ${host.name} 已有解析好的端口转发:`, host.tunnels.length, '个')
+      return host
+    }
+    
+    // 否则尝试从 otherInfo 解析
+    if (host.otherInfo && typeof host.otherInfo === 'string') {
+      const otherInfo = JSON.parse(host.otherInfo)
+      host.tunnels = otherInfo.portForwarding || []
+      console.log(`🔧 从 otherInfo 解析 ${host.name} 的端口转发:`, host.tunnels.length, '个')
+    } else if (!host.tunnels) {
+      host.tunnels = []
+    }
+  } catch (error) {
+    console.error('解析 otherInfo 失败:', error, host)
+    host.tunnels = []
+  }
+  return host
+}
+
+// 保存单个主机（用于编辑或新建）
+const saveSingleHost = async (host, isNew = false) => {
+  try {
+    // 准备 otherInfo 对象
+    const otherInfo = {
+      portForwarding: host.tunnels || []
+    }
+    
+    const serializedHost = {
       id: host.id,
       name: host.name,
       host: host.host,
@@ -544,37 +582,132 @@ const saveHosts = async () => {
       password: host.password,
       privateKeyContent: host.privateKeyContent,
       privateKeyPassphrase: host.privateKeyPassphrase,
-      group: host.group // 保存分组
-    }))
+      group: host.group,
+      otherInfo: JSON.stringify(otherInfo)
+    }
     
-    console.log('准备保存的主机配置:', serializedHosts)
+    console.log(`💾 保存单个主机 "${host.name}":`)
+    console.log('  - tunnels 数量:', (host.tunnels || []).length)
+    console.log('  - otherInfo:', serializedHost.otherInfo)
+    console.log('  - 是否新建:', isNew)
     
-    // 检查私钥内容是否被意外清空
-    serializedHosts.forEach((host, index) => {
-      if (host.authType === 'privateKey') {
-        console.log(`主机 ${index} (${host.name}) 私钥检查:`)
-        console.log('  - privateKeyContent 长度:', host.privateKeyContent ? host.privateKeyContent.length : 0)
-        console.log('  - privateKeyContent 是否为空字符串:', host.privateKeyContent === '')
-        console.log('  - privateKeyContent 是否为null:', host.privateKeyContent === null)
-        console.log('  - privateKeyContent 是否为undefined:', host.privateKeyContent === undefined)
-        
-        if (!host.privateKeyContent || host.privateKeyContent.trim() === '') {
-          console.warn('⚠️ 警告: 私钥内容为空，这可能导致连接失败')
-        }
-      }
-    })
-
     // 如果已登录，保存到云端
     if (useCloud.value && authAPI.isAuthenticated()) {
+      if (isNew) {
+        // 新建主机
+        console.log('  → 云端：添加新主机')
+        const result = await sshListAPI.add(serializedHost)
+        if (result.success) {
+          // 更新本地的 id
+          host.id = result.data.id
+          toast.value?.success('主机已同步到云端', '同步成功')
+        } else {
+          console.warn('云端添加失败，尝试本地保存:', result.error)
+          await saveHostsToLocal()
+        }
+      } else {
+        // 更新主机
+        if (host.id) {
+          console.log('  → 云端：更新主机 ID:', host.id)
+          const result = await sshListAPI.update(host.id, serializedHost)
+          if (result.success) {
+            toast.value?.success('主机已同步到云端', '同步成功')
+          } else {
+            console.warn('云端更新失败，尝试本地保存:', result.error)
+            await saveHostsToLocal()
+          }
+        } else {
+          console.warn('主机没有 ID，无法更新，尝试本地保存')
+          await saveHostsToLocal()
+        }
+      }
+    } else {
+      // 保存到本地（本地存储必须保存整个列表）
+      console.log('  → 本地：保存整个列表')
+      await saveHostsToLocal()
+    }
+  } catch (error) {
+    console.error('保存主机失败:', error)
+    toast.value?.error('保存失败: ' + error.message, '保存失败')
+  }
+}
+
+// 保存整个主机列表到本地
+const saveHostsToLocal = async () => {
+  try {
+    const serializedHosts = hosts.value.map(host => {
+      const otherInfo = {
+        portForwarding: host.tunnels || []
+      }
+      
+      return {
+        id: host.id,
+        name: host.name,
+        host: host.host,
+        port: host.port,
+        username: host.username,
+        authType: host.authType,
+        password: host.password,
+        privateKeyContent: host.privateKeyContent,
+        privateKeyPassphrase: host.privateKeyPassphrase,
+        group: host.group,
+        otherInfo: JSON.stringify(otherInfo)
+      }
+    })
+    
+    if (window.connectionAPI) {
+      const result = await window.connectionAPI.saveConnections(serializedHosts)
+      if (result.success) {
+        console.log('✅ 主机列表已保存到本地')
+      } else {
+        console.error('保存到本地失败:', result.message)
+      }
+    } else {
+      // 降级到 localStorage
+      localStorage.setItem('ssh-connections', JSON.stringify(serializedHosts))
+      console.log('✅ 主机列表已保存到 localStorage')
+    }
+  } catch (error) {
+    console.error('保存到本地失败:', error)
+    throw error
+  }
+}
+
+// 保存主机列表（用于批量操作，如导入）
+const saveHosts = async () => {
+  try {
+    console.log('📦 批量保存主机列表:', hosts.value.length, '个主机')
+    
+    // 如果已登录，批量保存到云端
+    if (useCloud.value && authAPI.isAuthenticated()) {
+      console.log('  → 云端：批量保存')
       const savePromises = []
 
-      for (const host of serializedHosts) {
+      for (const host of hosts.value) {
+        const otherInfo = {
+          portForwarding: host.tunnels || []
+        }
+        
+        const serializedHost = {
+          id: host.id,
+          name: host.name,
+          host: host.host,
+          port: host.port,
+          username: host.username,
+          authType: host.authType,
+          password: host.password,
+          privateKeyContent: host.privateKeyContent,
+          privateKeyPassphrase: host.privateKeyPassphrase,
+          group: host.group,
+          otherInfo: JSON.stringify(otherInfo)
+        }
+        
         if (host.id) {
           // 更新现有主机
-          savePromises.push(sshListAPI.update(host.id, host))
+          savePromises.push(sshListAPI.update(host.id, serializedHost))
         } else {
           // 添加新主机
-          savePromises.push(sshListAPI.add(host))
+          savePromises.push(sshListAPI.add(serializedHost))
         }
       }
 
@@ -592,20 +725,9 @@ const saveHosts = async () => {
     }
 
     // 保存到本地
-    if (window.connectionAPI) {
-      const result = await window.connectionAPI.saveConnections(serializedHosts)
-      if (result.success) {
-        toast.value?.success('主机列表已保存', '保存成功')
-        console.log('主机列表已保存')
-      } else {
-        console.error('保存主机列表失败:', result.message)
-        toast.value?.error('保存失败: ' + result.message, '保存失败')
-      }
-    } else {
-      // 降级到 localStorage
-      localStorage.setItem('ssh-connections', JSON.stringify(hosts.value))
-      toast.value?.success('主机列表已保存', '保存成功')
-    }
+    console.log('  → 本地：批量保存')
+    await saveHostsToLocal()
+    toast.value?.success('主机列表已保存', '保存成功')
   } catch (error) {
     console.error('保存主机列表失败:', error)
     toast.value?.error('保存失败', '保存失败')
@@ -774,16 +896,26 @@ const saveHost = async () => {
 
   // 保存或更新
   if (editingHostIndex.value >= 0) {
+    // 编辑模式：只更新这一个主机
     hosts.value[editingHostIndex.value] = { ...hostForm.value }
     console.log('更新主机配置:', hosts.value[editingHostIndex.value])
+    console.log('  - tunnels:', hosts.value[editingHostIndex.value].tunnels)
+    
+    // 只更新这一个主机
+    await saveSingleHost(hosts.value[editingHostIndex.value])
     toast.value?.success('主机已更新', '更新成功')
   } else {
-    hosts.value.push({ ...hostForm.value })
-    console.log('添加主机配置:', hostForm.value)
+    // 新建模式：只添加新主机
+    const newHost = { ...hostForm.value }
+    hosts.value.push(newHost)
+    console.log('添加主机配置:', newHost)
+    console.log('  - tunnels:', newHost.tunnels)
+    
+    // 只添加这一个主机
+    await saveSingleHost(newHost, true)
     toast.value?.success('主机已添加', '添加成功')
   }
 
-  await saveHosts()
   hostDialogVisible.value = false
   resetHostForm()
 }
@@ -856,6 +988,9 @@ const deleteHost = async () => {
 
 // 打开连接
 const openConnection = (host) => {
+  console.log('🚀 打开连接:', host.name)
+  console.log('  - tunnels:', host.tunnels)
+  console.log('  - tunnels 数量:', (host.tunnels || []).length)
   emit('open-connection', host)
 }
 
@@ -990,6 +1125,11 @@ if (typeof window !== 'undefined') {
 // 打开设置
 const openSettings = () => {
   emit('open-settings')
+}
+
+// 打开脚本管理器
+const openScriptManager = () => {
+  emit('open-script-manager')
 }
 
 // 处理导入成功

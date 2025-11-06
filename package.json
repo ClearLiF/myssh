@@ -40,7 +40,8 @@
     "hterm-umd": "^1.0.1",
     "is-stream": "^2.0.1",
     "node-ssh": "^13.1.0",
-    "vue": "^3.3.4"
+    "vue": "^3.3.4",
+    "vuedraggable": "^4.1.0"
   },
   "build": {
     "appId": "com.example.myssh",
@@ -55,6 +56,32 @@
     ],
     "asarUnpack": [
       "node_modules/**/*"
-    ]
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "arch": [
+        "arm64",
+        "x64"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "arch": [
+        "x64",
+        "ia32"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
