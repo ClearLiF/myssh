@@ -1557,7 +1557,58 @@ ipcMain.handle('fs:readFile', async (event, filePath) => {
     const content = fs.readFileSync(filePath, 'utf8')
     return {
       success: true,
-      content: content
+      data: content
+    }
+  } catch (error) {
+    return {
+      success: false,
+      message: error.message
+    }
+  }
+})
+
+// IPC 处理器 - 扫描文件夹中的配置文件
+ipcMain.handle('fs:scanDirectory', async (event, folderPath, filePattern) => {
+  try {
+    if (!fs.existsSync(folderPath)) {
+      return {
+        success: false,
+        message: '文件夹不存在'
+      }
+    }
+
+    const files = []
+    
+    // 递归扫描文件夹
+    const scanDir = (dirPath, relativePath = '') => {
+      const items = fs.readdirSync(dirPath)
+      
+      for (const item of items) {
+        const fullPath = path.join(dirPath, item)
+        const stat = fs.statSync(fullPath)
+        
+        if (stat.isDirectory()) {
+          // 递归扫描子目录
+          const newRelativePath = relativePath ? path.join(relativePath, item) : item
+          scanDir(fullPath, newRelativePath)
+        } else if (stat.isFile() && item.includes(filePattern)) {
+          // 找到匹配的文件
+          const group = relativePath || '默认分组'
+          files.push({
+            path: fullPath,
+            name: item,
+            group: group,
+            relativePath: relativePath ? path.join(relativePath, item) : item
+          })
+        }
+      }
+    }
+    
+    scanDir(folderPath)
+    
+    return {
+      success: true,
+      files: files
     }
   } catch (error) {
     return {

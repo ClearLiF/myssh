@@ -18,6 +18,16 @@
             <el-icon><Refresh /></el-icon>
           </el-button>
         </el-tooltip>
+        <el-tooltip content="导入FinalShell连接" placement="bottom">
+          <el-button
+            size="small"
+            circle
+            @click="importDialogVisible = true"
+            title="导入FinalShell连接"
+          >
+            <el-icon><Upload /></el-icon>
+          </el-button>
+        </el-tooltip>
         <el-button
           type="primary"
           size="small"
@@ -336,15 +346,22 @@
 
     <!-- Toast 通知组件 -->
     <ToastNotification ref="toast" />
+
+    <!-- 导入FinalShell连接对话框 -->
+    <ImportFinalShellDialog
+      v-model:visible="importDialogVisible"
+      @import-success="handleImportSuccess"
+    />
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh } from '@element-plus/icons-vue'
+import { Monitor, Plus, Search, Edit, Delete, Setting, CaretBottom, Refresh, Upload } from '@element-plus/icons-vue'
 import { authAPI, sshListAPI } from '../services/api'
 import ToastNotification from './ToastNotification.vue'
+import ImportFinalShellDialog from './ImportFinalShellDialog.vue'
 
 const emit = defineEmits(['open-connection', 'open-settings'])
 
@@ -352,6 +369,7 @@ const emit = defineEmits(['open-connection', 'open-settings'])
 const hosts = ref([])
 const searchKeyword = ref('')
 const hostDialogVisible = ref(false)
+const importDialogVisible = ref(false)
 const editingHostIndex = ref(-1)
 const selectedHost = ref(null)
 const selectedHostIndex = ref(-1)
@@ -972,6 +990,17 @@ if (typeof window !== 'undefined') {
 // 打开设置
 const openSettings = () => {
   emit('open-settings')
+}
+
+// 处理导入成功
+const handleImportSuccess = async (result) => {
+  toast.value?.success(
+    `导入完成！\n新增: ${result.added} 个连接\n跳过: ${result.skipped} 个重复连接\n总连接数: ${result.total}`,
+    '导入成功'
+  )
+  
+  // 重新加载主机列表
+  await loadHosts()
 }
 
 // 调试函数 - 检查私钥保存状态

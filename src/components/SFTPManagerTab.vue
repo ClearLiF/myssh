@@ -595,64 +595,167 @@ const processDroppedItems = async (items) => {
   const filesToUpload = []
   const folders = []
   
-  // 只处理顶层拖入的项目，不递归处理子目录（递归在压缩时处理）
-  for (const item of items) {
+  console.log(`🔍 开始处理拖入的 ${items.length} 个项目`)
+  console.log('DataTransfer items:', items)
+  
+  // 使用 Promise.all 并行处理所有项目，避免顺序处理可能的问题
+  const processPromises = []
+  
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    console.log(`📋 处理项目 ${i + 1}/${items.length}:`, {
+      kind: item.kind,
+      type: item.type
+    })
+    
     if (item.kind === 'file') {
-      const entry = item.webkitGetAsEntry()
-      if (entry) {
-        if (entry.isFile) {
-          // 这是一个文件，直接添加到上传列表
-          const file = await new Promise((resolve, reject) => {
-            entry.file(resolve, reject)
-          })
-          file.fullPath = file.name // 只使用文件名，不包含父目录路径
-          filesToUpload.push(file)
-        } else if (entry.isDirectory) {
-          // 这是一个文件夹，记录到文件夹列表（稍后询问用户如何处理）
-          folders.push({
-            name: entry.name,
-            entry: entry,
-            path: ''
-          })
+      const processPromise = (async () => {
+        try {
+          const entry = item.webkitGetAsEntry()
+          if (!entry) {
+            console.warn(`⚠️ 无法获取项目 ${i + 1} 的 entry`)
+            return
+          }
+          
+          console.log(`📁 项目名称: ${entry.name}, 类型: ${entry.isFile ? '文件' : '文件夹'}`)
+          
+          if (entry.isFile) {
+            // 这是一个文件，直接添加到上传列表
+            try {
+              const file = await new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                  reject(new Error('获取文件超时'))
+                }, 5000)
+                
+                entry.file((f) => {
+                  clearTimeout(timeout)
+                  resolve(f)
+                }, (error) => {
+                  clearTimeout(timeout)
+                  reject(error)
+                })
+              })
+              
+              file.fullPath = file.name // 只使用文件名，不包含父目录路径
+              filesToUpload.push(file)
+              console.log(`✅ 添加文件: ${file.name} (${file.size} bytes)`)
+            } catch (error) {
+              console.error(`❌ 处理文件失败: ${entry.name}`, error)
+            }
+          } else if (entry.isDirectory) {
+            // 这是一个文件夹，记录到文件夹列表
+            folders.push({
+              name: entry.name,
+              entry: entry,
+              path: ''
+            })
+            console.log(`✅ 添加文件夹: ${entry.name}`)
+          }
+        } catch (error) {
+          console.error(`❌ 处理项目 ${i + 1} 失败:`, error)
         }
-      }
+      })()
+      
+      processPromises.push(processPromise)
+    } else {
+      console.warn(`⚠️ 跳过非文件项目 ${i + 1}: ${item.kind}`)
     }
   }
+  
+  // 等待所有项目处理完成
+  await Promise.all(processPromises)
+  
+  console.log(`🎉 处理完成 - 文件: ${filesToUpload.length} 个, 文件夹: ${folders.length} 个`)
+  console.log('📄 文件列表:', filesToUpload.map(f => f.name))
+  console.log('📁 文件夹列表:', folders.map(f => f.name))
   
   return { filesToUpload, folders }
 }
 
 const handleDrop = async (event) => {
   const items = event.dataTransfer.items
+  console.log(`🚀 拖放事件触发，共 ${items.length} 个项目`)
+  console.log('Event details:', {
+    itemsLength: items.length,
+    types: Array.from(items).map(item => ({ kind: item.kind, type: item.type }))
+  })
+  
   if (items.length > 0) {
     try {
+      console.log('🔄 开始处理拖放项目...')
       const { filesToUpload, folders } = await processDroppedItems(Array.from(items))
       
-      // 调试信息
-      console.log('拖入的文件:', filesToUpload.map(f => f.name))
-      console.log('拖入的文件夹:', folders.map(f => f.name))
+      // 详细调试信息
+      console.log('📊 处理结果统计:')
+      console.log('  - 文件数量:', filesToUpload.length)
+      console.log('  - 文件夹数量:', folders.length)
+      console.log('  - 文件列表:', filesToUpload.map(f => f.name))
+      console.log('  - 文件夹列表:', folders.map(f => f.name))
       
-      // 如果包含文件夹，根据设置决定上传方式（不再弹窗询问）
-      if (folders.length > 0) {
+      // 处理混合情况：既有文件又有文件夹
+      if (folders.length > 0 && filesToUpload.length > 0) {
+        const folderNames = folders.map(f => f.name).join('、')
+        const fileNames = filesToUpload.map(f => f.name).join('、')
+        const modeText = folderUploadMode.value === 'compress' ? '压缩上传' : '直接上传'
+        
+        console.log(`🎯 混合模式: ${folders.length} 个文件夹 + ${filesToUpload.length} 个文件`)
+        toastRef.value?.info(`检测到 ${folders.length} 个文件夹（${folderNames}）和 ${filesToUpload.length} 个文件（${fileNames}），使用${modeText}模式`)
+        
+        if (folderUploadMode.value === 'compress') {
+          // 压缩上传文件夹，然后单独上传文件
+          console.log('📦 开始压缩上传文件夹...')
+          await uploadFoldersCompressed(folders)
+          
+          console.log('📄 开始上传单独文件...')
+          if (filesToUpload.length > 0) {
+            await uploadFiles(filesToUpload)
+          }
+          console.log('✅ 混合上传完成')
+        } else {
+          // 直接上传文件夹：收集文件夹中的所有文件并与单独文件一起上传
+          console.log('📁 开始直接上传模式...')
+          await uploadFoldersDirect(folders, filesToUpload)
+          console.log('✅ 直接上传完成')
+        }
+      } else if (folders.length > 0) {
+        // 只有文件夹
         const folderNames = folders.map(f => f.name).join('、')
         const modeText = folderUploadMode.value === 'compress' ? '压缩上传' : '直接上传'
-        toastRef.value?.info(`检测到文件夹：${folderNames}，使用${modeText}模式`)
+        
+        console.log(`📁 纯文件夹模式: ${folders.length} 个文件夹`)
+        toastRef.value?.info(`检测到 ${folders.length} 个文件夹：${folderNames}，使用${modeText}模式`)
         
         if (folderUploadMode.value === 'compress') {
           // 压缩上传
+          console.log('📦 开始压缩上传文件夹...')
           await uploadFoldersCompressed(folders)
         } else {
           // 直接上传文件夹：收集文件夹中的所有文件并上传
+          console.log('📁 开始直接上传文件夹...')
           await uploadFoldersDirect(folders, filesToUpload)
         }
+        console.log('✅ 文件夹上传完成')
       } else if (filesToUpload.length > 0) {
         // 只有文件，直接上传
-        uploadFiles(filesToUpload)
+        const fileNames = filesToUpload.map(f => f.name).join('、')
+        
+        console.log(`📄 纯文件模式: ${filesToUpload.length} 个文件`)
+        toastRef.value?.info(`检测到 ${filesToUpload.length} 个文件：${fileNames}，开始上传`)
+        await uploadFiles(filesToUpload)
+        console.log('✅ 文件上传完成')
+      } else {
+        console.warn('⚠️ 没有检测到可上传的文件或文件夹')
+        toastRef.value?.warning('没有检测到可上传的文件或文件夹')
       }
     } catch (error) {
+      console.error('❌ 处理拖放文件失败:', error)
       toastRef.value?.error('处理拖放文件失败: ' + error.message)
     }
+  } else {
+    console.warn('⚠️ 没有拖放项目')
   }
+  
+  console.log('🏁 拖放处理结束')
   isDraggingOver.value = false
 }
 

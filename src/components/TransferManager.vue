@@ -403,10 +403,23 @@ const showContextMenu = (event, record) => {
   contextMenuVisible.value = true
 }
 
-// 点击其他地方关闭右键菜单
+// 点击其他地方关闭右键菜单和传输面板
 const handleClickOutside = (event) => {
+  // 关闭右键菜单
   if (contextMenuVisible.value) {
     contextMenuVisible.value = false
+  }
+  
+  // 关闭传输面板（如果点击的不是传输面板内部）
+  if (isPanelVisible.value) {
+    // 检查点击的元素是否在传输面板内部
+    const transferPanel = event.target.closest('.transfer-panel')
+    const transferButton = event.target.closest('.transfer-button')
+    
+    // 如果点击的不是传输面板内部也不是传输按钮，则关闭面板
+    if (!transferPanel && !transferButton) {
+      isPanelVisible.value = false
+    }
   }
 }
 
