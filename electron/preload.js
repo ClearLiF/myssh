@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 断开 SSH 连接
     disconnect: (connectionId) => ipcRenderer.invoke('ssh:disconnect', connectionId),
     
+    // 重连 SSH
+    reconnect: (connectionId) => ipcRenderer.invoke('ssh:reconnect', connectionId),
+    
     // 执行 SSH 命令
     execute: (connectionId, command) => ipcRenderer.invoke('ssh:execute', { connectionId, command }),
     
@@ -175,8 +178,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     
     // Systemctl 服务管理 API
     // 获取服务列表
-    getSystemctlServices: (connectionId) => 
-      ipcRenderer.invoke('ssh:getSystemctlServices', connectionId),
+    getSystemctlServices: (connectionId, options) => 
+      ipcRenderer.invoke('ssh:getSystemctlServices', connectionId, options),
+    
+    // 获取所有服务名称（用于搜索建议）
+    getAllServiceNames: (connectionId) => 
+      ipcRenderer.invoke('ssh:getAllServiceNames', connectionId),
     
     // 获取服务状态
     getSystemctlServiceStatus: (connectionId, unit) => 
@@ -213,27 +220,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
     list: (connectionId, path) => ipcRenderer.invoke('sftp:list', { connectionId, path }),
     
     // 上传文件
-    upload: (connectionId, localPath, remotePath) => 
-      ipcRenderer.invoke('sftp:upload', { connectionId, localPath, remotePath }),
+    upload: (connectionId, localPath, remotePath, taskId) => 
+      ipcRenderer.invoke('sftp:upload', { connectionId, localPath, remotePath, taskId }),
     
     // 上传文件夹
     uploadDirectory: (connectionId, localPath, remotePath) => 
       ipcRenderer.invoke('sftp:uploadDirectory', { connectionId, localPath, remotePath }),
     
     // 下载文件
-    download: (connectionId, remotePath, localPath) => 
-      ipcRenderer.invoke('sftp:download', { connectionId, remotePath, localPath }),
+    download: (connectionId, remotePath, localPath, taskId) => 
+      ipcRenderer.invoke('sftp:download', { connectionId, remotePath, localPath, taskId }),
+    
+    // 取消传输
+    cancel: (taskId) => 
+      ipcRenderer.invoke('sftp:cancel', { taskId }),
     
     // 重命名文件
     rename: (connectionId, oldPath, newPath) => 
       ipcRenderer.invoke('sftp:rename', { connectionId, oldPath, newPath }),
     
-    // 监听上传进度
+    // 监听传输进度
     onProgress: (callback) => {
       ipcRenderer.on('sftp:progress', (event, data) => callback(data))
     },
     
-    // 移除上传进度监听
+    // 移除进度监听
     removeProgressListener: () => {
       ipcRenderer.removeAllListeners('sftp:progress')
     }

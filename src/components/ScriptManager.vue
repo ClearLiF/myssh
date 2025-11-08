@@ -9,6 +9,10 @@
               <el-icon><Plus /></el-icon>
               新建脚本
             </el-button>
+            <el-button type="info" @click="refreshFromCloud" :loading="isRefreshing">
+              <el-icon><Refresh /></el-icon>
+              刷新脚本
+            </el-button>
             <el-button type="success" @click="saveToCloud" :loading="isSaving">
               <el-icon><Upload /></el-icon>
               保存到云端
@@ -280,13 +284,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Upload, Rank, Delete } from '@element-plus/icons-vue'
+import { Plus, Upload, Refresh, Rank, Delete } from '@element-plus/icons-vue'
 import draggable from 'vuedraggable'
 import { authAPI } from '../services/api'
 
 // 脚本数据
 const scripts = ref([])
 const isSaving = ref(false)
+const isRefreshing = ref(false)
 
 // 编辑器状态
 const showEditor = ref(false)
@@ -336,6 +341,36 @@ const loadScripts = () => {
   } catch (error) {
     console.error('加载脚本失败:', error)
     ElMessage.error('加载脚本失败')
+  }
+}
+
+// 从云端刷新脚本数据
+const refreshFromCloud = async () => {
+  if (!authAPI.isAuthenticated()) {
+    ElMessage.warning('请先登录后再刷新')
+    return
+  }
+
+  try {
+    isRefreshing.value = true
+    
+    // 重新获取用户信息和脚本数据
+    const result = await authAPI.refreshUserInfo()
+    
+    if (result.success) {
+      // 重新加载脚本
+      loadScripts()
+      ElMessage.success('脚本刷新成功')
+      // 触发更新事件，通知其他组件刷新脚本列表
+      window.dispatchEvent(new CustomEvent('scripts-updated'))
+    } else {
+      ElMessage.error(result.error || '刷新失败')
+    }
+  } catch (error) {
+    console.error('刷新脚本失败:', error)
+    ElMessage.error('刷新脚本失败')
+  } finally {
+    isRefreshing.value = false
   }
 }
 
@@ -635,10 +670,14 @@ onMounted(() => {
 .script-container {
   height: 100%;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .script-list {
   padding: 16px 0;
+  flex: 1;
+  overflow-y: auto;
 }
 
 .list-header {
@@ -711,6 +750,15 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   margin-left: 16px;
+  flex-shrink: 0;
+  align-items: center;
+  z-index: 10;
+}
+
+.script-actions .el-button {
+  position: relative;
+  z-index: 11;
+  pointer-events: auto;
 }
 
 .params-manager {

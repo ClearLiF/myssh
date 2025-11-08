@@ -191,6 +191,13 @@
               <span>下载文件夹</span>
             </div>
             <div 
+              class="menu-item"
+              @click="showPermissionDialog(selectedFile)"
+            >
+              <el-icon><Key /></el-icon>
+              <span>修改权限</span>
+            </div>
+            <div 
               class="menu-item danger"
               @click="deleteFile(selectedFile)"
             >
@@ -222,6 +229,105 @@
       </div>
     </div>
 
+    <!-- 权限修改对话框 -->
+    <el-dialog
+      v-model="permissionDialogVisible"
+      title="修改文件权限"
+      width="500px"
+      :close-on-click-modal="false"
+    >
+      <div class="permission-dialog-content">
+        <div class="file-info">
+          <div class="file-name">
+            <el-icon :size="20" :color="permissionFile?.isDirectory ? '#58a6ff' : '#8b949e'">
+              <Folder v-if="permissionFile?.isDirectory" />
+              <Document v-else />
+            </el-icon>
+            <span>{{ permissionFile?.name }}</span>
+          </div>
+          <div class="file-path">{{ getFullPath(permissionFile) }}</div>
+        </div>
+        
+        <el-divider />
+        
+        <div class="permission-settings">
+          <h4>权限设置</h4>
+          
+          <!-- 数字权限输入 -->
+          <div class="numeric-permission">
+            <label>数字权限:</label>
+            <el-input
+              v-model="numericPermission"
+              placeholder="例如: 755, 644"
+              maxlength="3"
+              @input="onNumericPermissionChange"
+              style="width: 120px;"
+            />
+            <span class="permission-hint">常用: 755 (rwxr-xr-x), 644 (rw-r--r--)</span>
+          </div>
+          
+          <!-- 可视化权限设置 -->
+          <div class="visual-permissions">
+            <div class="permission-group">
+              <h5>所有者 (Owner)</h5>
+              <div class="permission-checkboxes">
+                <el-checkbox v-model="permissions.owner.read">读取 (r)</el-checkbox>
+                <el-checkbox v-model="permissions.owner.write">写入 (w)</el-checkbox>
+                <el-checkbox v-model="permissions.owner.execute">执行 (x)</el-checkbox>
+              </div>
+            </div>
+            
+            <div class="permission-group">
+              <h5>用户组 (Group)</h5>
+              <div class="permission-checkboxes">
+                <el-checkbox v-model="permissions.group.read">读取 (r)</el-checkbox>
+                <el-checkbox v-model="permissions.group.write">写入 (w)</el-checkbox>
+                <el-checkbox v-model="permissions.group.execute">执行 (x)</el-checkbox>
+              </div>
+            </div>
+            
+            <div class="permission-group">
+              <h5>其他用户 (Others)</h5>
+              <div class="permission-checkboxes">
+                <el-checkbox v-model="permissions.others.read">读取 (r)</el-checkbox>
+                <el-checkbox v-model="permissions.others.write">写入 (w)</el-checkbox>
+                <el-checkbox v-model="permissions.others.execute">执行 (x)</el-checkbox>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 权限预览 -->
+          <div class="permission-preview">
+            <label>权限预览:</label>
+            <code>{{ permissionPreview }}</code>
+          </div>
+          
+          <!-- 递归选项 -->
+          <div v-if="permissionFile?.isDirectory" class="recursive-option">
+            <el-checkbox v-model="applyRecursively">
+              递归应用到子文件和文件夹
+            </el-checkbox>
+            <div class="recursive-hint">
+              注意: 递归操作可能需要较长时间，请谨慎使用
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="permissionDialogVisible = false">取消</el-button>
+          <el-button 
+            type="primary" 
+            @click="applyPermissionChanges"
+            :loading="applyingPermission"
+          >
+            应用权限
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 传输管理器 -->
     <TransferManager ref="transferManagerRef" />
     
@@ -233,7 +339,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, onUnmounted, nextTick } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Refresh, Upload, FolderAdd, Folder, Document, Download, Delete, HomeFilled, Edit, DocumentCopy, EditPen, Box, FolderOpened } from '@element-plus/icons-vue'
+import { Refresh, Upload, FolderAdd, Folder, Document, Download, Delete, HomeFilled, Edit, DocumentCopy, EditPen, Box, FolderOpened, Key } from '@element-plus/icons-vue'
 import TransferManager from './TransferManager.vue'
 import ToastNotification from './ToastNotification.vue'
 
@@ -265,6 +371,20 @@ const folderUploadMode = ref('compress') // 文件夹上传方式：'compress' �
 const transferManagerRef = ref(null) // 传输管理器引用
 const toastRef = ref(null) // Toast 通知引用
 
+// 权限修改相关
+const permissionDialogVisible = ref(false)
+const permissionFile = ref(null)
+const applyingPermission = ref(false)
+const applyRecursively = ref(false)
+const numericPermission = ref('755')
+
+// 权限设置对象
+const permissions = ref({
+  owner: { read: true, write: true, execute: true },
+  group: { read: true, write: false, execute: true },
+  others: { read: true, write: false, execute: true }
+})
+
 // 树相关
 const treeData = ref([])
 const treeLoading = ref(false)
@@ -274,6 +394,17 @@ const treeProps = {
   children: 'children',
   isLeaf: 'isLeaf'
 }
+
+// 权限预览计算属性
+const permissionPreview = computed(() => {
+  const { owner, group, others } = permissions.value
+  
+  const ownerStr = (owner.read ? 'r' : '-') + (owner.write ? 'w' : '-') + (owner.execute ? 'x' : '-')
+  const groupStr = (group.read ? 'r' : '-') + (group.write ? 'w' : '-') + (group.execute ? 'x' : '-')
+  const othersStr = (others.read ? 'r' : '-') + (others.write ? 'w' : '-') + (others.execute ? 'x' : '-')
+  
+  return ownerStr + groupStr + othersStr
+})
 
 // 格式化文件大小
 const formatFileSize = (bytes) => {
@@ -1072,7 +1203,8 @@ const downloadFile = async (file) => {
       const result = await window.electronAPI.sftp.download(
         props.connectionId,
         remotePath,
-        savePath
+        savePath,
+        taskId
       )
 
       if (result.success) {
@@ -1271,16 +1403,17 @@ const downloadFolderRecursively = async (remotePath, localPath, folderName, task
         console.log(`${indent}下载文件: ${file.name} (${file.size || '未知大小'})`)
         
         try {
-          const downloadResult = await Promise.race([
-            window.electronAPI.sftp.download(
-              props.connectionId,
-              remoteFilePath,
-              localFilePath
-            ),
-            new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('文件下载超时')), 60000)
-            )
-          ])
+            const downloadResult = await Promise.race([
+              window.electronAPI.sftp.download(
+                props.connectionId,
+                remoteFilePath,
+                localFilePath,
+                null // 文件夹递归下载不需要单独的taskId
+              ),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('文件下载超时')), 60000)
+              )
+            ])
           
           if (downloadResult.success) {
             downloadedFiles++
@@ -1380,7 +1513,8 @@ const uploadFoldersCompressed = async (folders) => {
         name: folder.name,
         type: 'upload',
         totalSize: 0, // 稍后更新
-        path: `${currentPath.value}/${folder.name}`
+        path: `${currentPath.value}/${folder.name}`,
+        status: 'processing' // 初始状态为处理中
       })
 
       // 1. 收集文件夹中的所有文件（只收集当前文件夹内的文件，不包含父目录）
@@ -1501,9 +1635,11 @@ const uploadFoldersCompressed = async (folders) => {
       // 3. 压缩文件夹
       transferManagerRef.value.updateTask(taskId, {
         percentage: 40,
-        currentSize: totalSize * 0.4
+        currentSize: totalSize * 0.4,
+        status: 'processing'
       })
       
+      console.log(`📦 开始压缩文件夹: ${folder.name}`)
       const zipResult = await window.electronAPI.system.compressFolderPath({
         folderPath: tempDir,
         folderName: folder.name
@@ -1513,63 +1649,186 @@ const uploadFoldersCompressed = async (folders) => {
         throw new Error(zipResult.message || '压缩失败')
       }
       
+      console.log(`✅ 压缩完成: ${folder.name}`)
       transferManagerRef.value.updateTask(taskId, {
         percentage: 50,
-        currentSize: totalSize * 0.5
+        currentSize: totalSize * 0.5,
+        status: 'processing'
       })
 
-      // 3. 上传压缩文件（tar.gz 格式）
-      const remoteTarPath = `${currentPath.value}/${folder.name}.tar.gz`.replace('//', '/')
-      const uploadResult = await window.electronAPI.sftp.upload(
-        props.connectionId,
-        zipResult.zipPath, // zipPath 字段兼容 tar.gz 路径
-        remoteTarPath
-      )
+      // 3. 获取压缩文件的实际大小并更新任务
+      let compressedSize = 0
+      try {
+        if (window.electronAPI && window.electronAPI.getFileStats) {
+          const compressedStats = await window.electronAPI.getFileStats(zipResult.zipPath)
+          compressedSize = compressedStats ? compressedStats.size : 0
+        }
+      } catch (error) {
+        console.warn('无法获取压缩文件大小:', error)
+      }
+      
+      // 更新任务的总大小为压缩文件的实际大小
+      transferManagerRef.value.updateTask(taskId, {
+        totalSize: compressedSize,
+        percentage: 50,
+        currentSize: 0, // 重置当前大小，准备开始上传
+        status: 'uploading' // 切换到上传状态
+      })
 
-      if (!uploadResult.success) {
-        throw new Error(uploadResult.message || '上传失败')
+      console.log(`📤 开始上传压缩文件: ${folder.name}.tar.gz (${(compressedSize / 1024 / 1024).toFixed(2)} MB)`)
+      
+      // 4. 上传压缩文件（tar.gz 格式）
+      const remoteTarPath = `${currentPath.value}/${folder.name}.tar.gz`.replace('//', '/')
+      // 上传压缩文件（带重连机制）
+      let uploadResult = null
+      let uploadSuccess = false
+      let uploadAttempts = 0
+      const maxUploadAttempts = 3
+      
+      while (!uploadSuccess && uploadAttempts < maxUploadAttempts) {
+        try {
+          uploadAttempts++
+          console.log(`尝试上传压缩文件 (第${uploadAttempts}次): ${folder.name}.tar.gz`)
+          
+          uploadResult = await window.electronAPI.sftp.upload(
+            props.connectionId,
+            zipResult.zipPath, // zipPath 字段兼容 tar.gz 路径
+            remoteTarPath,
+            taskId // 传递taskId以支持进度显示和取消功能
+          )
+
+          if (uploadResult.success) {
+            uploadSuccess = true
+            console.log(`✅ 压缩文件上传成功: ${folder.name}.tar.gz`)
+          } else {
+            throw new Error(uploadResult.message || '上传失败')
+          }
+        } catch (uploadError) {
+          console.warn(`上传失败 (第${uploadAttempts}次尝试):`, uploadError.message)
+          
+          if (uploadAttempts >= maxUploadAttempts) {
+            throw new Error(`上传失败 (已重试${maxUploadAttempts}次): ${uploadError.message}`)
+          }
+          
+          // 简单等待后重试，不进行重连
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+      }
+
+      if (!uploadSuccess) {
+        throw new Error('上传失败，已达到最大重试次数')
       }
 
       transferManagerRef.value.updateTask(taskId, {
         percentage: 70,
-        currentSize: totalSize * 0.7
+        currentSize: compressedSize // 上传完成，当前大小等于压缩文件大小
       })
 
-      // 4. 在远程服务器解压（使用 tar 命令，几乎所有 Linux 系统都自带）
+      // 5. 在远程服务器解压（使用 tar 命令，几乎所有 Linux 系统都自带）
       console.log(`开始解压: ${folder.name}.tar.gz 到 ${currentPath.value}`)
+      
+      // 添加延迟确保上传完全完成
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // 跳过文件检查，直接进行解压
+      // 因为上传已经成功，如果解压失败会在解压步骤报错
+      console.log('上传成功，跳过文件检查，直接解压')
       
       // tar 命令是 Linux 标准命令，不需要额外安装
       // -xzf: x=解压, z=gzip压缩, f=文件
-      // -C: 指定解压目录
-      const extractResult = await window.electronAPI.ssh.execute(
-        props.connectionId,
-        `cd "${currentPath.value}" && tar -xzf "${folder.name}.tar.gz"`
-      )
+      // 添加 -v 参数显示详细信息，便于调试
+      let extractResult = null
+      let retryCount = 0
+      const maxRetries = 3
+      
+      while (retryCount < maxRetries) {
+        try {
+          console.log(`尝试解压 (第${retryCount + 1}次): ${folder.name}.tar.gz`)
+          
+          // 添加更详细的错误检查
+          extractResult = await window.electronAPI.ssh.execute(
+            props.connectionId,
+            `cd "${currentPath.value}" && tar -xzvf "${folder.name}.tar.gz" 2>&1`
+          )
+          
+          console.log('解压结果:', extractResult)
+          
+          if (extractResult.success) {
+            // 验证解压是否成功 - 检查目标文件夹是否存在
+            const verifyResult = await window.electronAPI.ssh.execute(
+              props.connectionId,
+              `cd "${currentPath.value}" && ls -la "${folder.name}"`
+            )
+            
+            if (verifyResult.success) {
+              console.log('✅ 解压验证成功')
+              break
+            } else {
+              throw new Error('解压后文件夹不存在，解压可能失败')
+            }
+          } else {
+            throw new Error(extractResult.message || '解压命令执行失败')
+          }
+        } catch (error) {
+          retryCount++
+          console.warn(`解压失败 (第${retryCount}次尝试):`, error.message)
+          
+          if (retryCount >= maxRetries) {
+            // 尝试使用备用解压方法
+            console.log('尝试使用备用解压方法...')
+            try {
+              const fallbackResult = await window.electronAPI.ssh.execute(
+                props.connectionId,
+                `cd "${currentPath.value}" && gunzip -c "${folder.name}.tar.gz" | tar -xf -`
+              )
+              
+              if (fallbackResult.success) {
+                console.log('✅ 备用解压方法成功')
+                extractResult = fallbackResult
+                break
+              }
+            } catch (fallbackError) {
+              console.error('备用解压方法也失败:', fallbackError.message)
+            }
+            
+            throw new Error(`解压失败 (已重试${maxRetries}次): ${error.message}`)
+          }
+          
+          // 重试前等待一段时间
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
+      }
 
-      console.log('解压结果:', extractResult)
-
-      if (!extractResult.success) {
-        throw new Error('解压失败: ' + extractResult.message)
+      if (!extractResult || !extractResult.success) {
+        throw new Error('解压失败: ' + (extractResult?.message || '未知错误'))
       }
 
       transferManagerRef.value.updateTask(taskId, {
         percentage: 90,
-        currentSize: totalSize * 0.9
+        currentSize: compressedSize
       })
 
-      // 5. 删除远程 tar.gz 文件
-      const deleteTarResult = await window.electronAPI.ssh.execute(
-        props.connectionId,
-        `rm "${currentPath.value}/${folder.name}.tar.gz"`
-      )
+      // 6. 删除远程 tar.gz 文件
+      try {
+        const deleteTarResult = await window.electronAPI.ssh.execute(
+          props.connectionId,
+          `rm "${currentPath.value}/${folder.name}.tar.gz"`
+        )
 
-      if (!deleteTarResult.success) {
-        console.warn('删除远程 tar.gz 文件失败:', deleteTarResult.message)
+        if (!deleteTarResult.success) {
+          console.warn('删除远程 tar.gz 文件失败:', deleteTarResult.message)
+          // 不抛出错误，因为解压已经成功，删除失败不影响主要功能
+        } else {
+          console.log('✅ 远程 tar.gz 文件已删除')
+        }
+      } catch (deleteError) {
+        console.warn('删除远程 tar.gz 文件时发生异常:', deleteError.message)
+        // 继续执行，不影响主流程
       }
 
       transferManagerRef.value.updateTask(taskId, {
         percentage: 95,
-        currentSize: totalSize * 0.95
+        currentSize: compressedSize
       })
 
       // 7. 删除本地临时目录和压缩文件
@@ -1586,7 +1845,7 @@ const uploadFoldersCompressed = async (folders) => {
 
       transferManagerRef.value.updateTask(taskId, {
         percentage: 100,
-        currentSize: totalSize,
+        currentSize: compressedSize,
         status: 'success'
       })
       
@@ -1595,7 +1854,7 @@ const uploadFoldersCompressed = async (folders) => {
 
     } catch (error) {
       errorCount++
-      if (taskId) {
+      if (taskId && transferManagerRef.value) {
         transferManagerRef.value.updateTask(taskId, {
           status: 'error',
           percentage: 0
@@ -1605,10 +1864,14 @@ const uploadFoldersCompressed = async (folders) => {
       
       // 根据错误类型给出更友好的提示
       let errorMsg = error.message
-      if (errorMsg.includes('解压') || errorMsg.includes('tar')) {
+      if (errorMsg.includes('Channel open failure')) {
+        toastRef.value?.error(`"${folder.name}" SSH通道打开失败，可能是连接不稳定，请重试`, 'SSH连接错误', 8000)
+      } else if (errorMsg.includes('解压') || errorMsg.includes('tar')) {
         toastRef.value?.error(`"${folder.name}" 解压失败: ${errorMsg}`, '解压错误', 8000)
       } else if (errorMsg.includes('上传失败')) {
         toastRef.value?.error(`"${folder.name}" 上传失败: ${errorMsg}`, '上传错误', 5000)
+      } else if (errorMsg.includes('SSH连接')) {
+        toastRef.value?.error(`"${folder.name}" SSH连接异常: ${errorMsg}`, '连接错误', 6000)
       } else {
         toastRef.value?.error(`"${folder.name}" 失败: ${errorMsg}`, '错误', 5000)
       }
@@ -1668,7 +1931,8 @@ const uploadFiles = async (filesToUpload) => {
         const result = await window.electronAPI.sftp.upload(
           props.connectionId,
           file.path || file,
-          remotePath
+          remotePath,
+          taskId
         )
 
         if (result.success) {
@@ -1851,7 +2115,8 @@ const openWithEditor = async (file) => {
       const downloadResult = await window.electronAPI.sftp.download(
         props.connectionId,
         remotePath,
-        localPath
+        localPath,
+        null // 编辑器下载不需要进度显示
       )
       
       if (!downloadResult.success) {
@@ -1906,7 +2171,8 @@ const startFileWatcher = async (connectionId, localPath, remotePath, fileName) =
                   const uploadResult = await window.electronAPI.sftp.upload(
                     connectionId,
                     localPath,
-                    remotePath
+                    remotePath,
+                    null // 自动上传不需要进度显示
                   )
                   
                   if (uploadResult && uploadResult.success) {
@@ -1932,6 +2198,189 @@ const startFileWatcher = async (connectionId, localPath, remotePath, fileName) =
   } else {
     // 如果不支持文件监听API，使用轮询方式
     startFileWatcherPolling(connectionId, localPath, remotePath, fileName)
+  }
+}
+
+// 获取文件完整路径
+const getFullPath = (file) => {
+  if (!file) return ''
+  return file.fullPath || `${currentPath.value}/${file.name}`.replace('//', '/')
+}
+
+// 显示权限修改对话框
+const showPermissionDialog = async (file) => {
+  if (!props.connectionId) {
+    toastRef.value?.warning('请先建立 SSH 连接')
+    return
+  }
+
+  permissionFile.value = file
+  
+  // 获取当前文件权限
+  try {
+    const filePath = getFullPath(file)
+    
+    if (window.electronAPI && window.electronAPI.ssh) {
+      // 使用 stat 命令获取文件权限
+      const statResult = await window.electronAPI.ssh.execute(
+        props.connectionId,
+        `stat -c "%a %n" "${filePath}"`
+      )
+      
+      if (statResult.success && statResult.output) {
+        const match = statResult.output.trim().match(/^(\d{3,4})\s+/)
+        if (match) {
+          const currentPermission = match[1].slice(-3) // 取最后3位数字
+          numericPermission.value = currentPermission
+          parseNumericPermission(currentPermission)
+        }
+      }
+    }
+  } catch (error) {
+    console.error('获取文件权限失败:', error)
+    // 使用默认权限
+    numericPermission.value = file.isDirectory ? '755' : '644'
+    parseNumericPermission(numericPermission.value)
+  }
+  
+  // 重置递归选项
+  applyRecursively.value = false
+  
+  // 显示对话框
+  permissionDialogVisible.value = true
+}
+
+// 解析数字权限到复选框
+const parseNumericPermission = (numericPerm) => {
+  if (!numericPerm || numericPerm.length !== 3) return
+  
+  const digits = numericPerm.split('').map(Number)
+  
+  // 解析所有者权限
+  permissions.value.owner.read = !!(digits[0] & 4)
+  permissions.value.owner.write = !!(digits[0] & 2)
+  permissions.value.owner.execute = !!(digits[0] & 1)
+  
+  // 解析用户组权限
+  permissions.value.group.read = !!(digits[1] & 4)
+  permissions.value.group.write = !!(digits[1] & 2)
+  permissions.value.group.execute = !!(digits[1] & 1)
+  
+  // 解析其他用户权限
+  permissions.value.others.read = !!(digits[2] & 4)
+  permissions.value.others.write = !!(digits[2] & 2)
+  permissions.value.others.execute = !!(digits[2] & 1)
+}
+
+// 将复选框权限转换为数字权限
+const convertPermissionsToNumeric = () => {
+  const { owner, group, others } = permissions.value
+  
+  const ownerNum = (owner.read ? 4 : 0) + (owner.write ? 2 : 0) + (owner.execute ? 1 : 0)
+  const groupNum = (group.read ? 4 : 0) + (group.write ? 2 : 0) + (group.execute ? 1 : 0)
+  const othersNum = (others.read ? 4 : 0) + (others.write ? 2 : 0) + (others.execute ? 1 : 0)
+  
+  return `${ownerNum}${groupNum}${othersNum}`
+}
+
+// 数字权限输入变化处理
+const onNumericPermissionChange = (value) => {
+  // 只允许数字输入
+  const cleanValue = value.replace(/[^0-7]/g, '')
+  if (cleanValue !== value) {
+    numericPermission.value = cleanValue
+    return
+  }
+  
+  // 限制为3位数字
+  if (cleanValue.length <= 3) {
+    numericPermission.value = cleanValue
+    if (cleanValue.length === 3) {
+      parseNumericPermission(cleanValue)
+    }
+  }
+}
+
+// 监听权限复选框变化，同步更新数字权限
+watch(permissions, () => {
+  numericPermission.value = convertPermissionsToNumeric()
+}, { deep: true })
+
+// 应用权限修改
+const applyPermissionChanges = async () => {
+  if (!permissionFile.value || !props.connectionId) {
+    return
+  }
+
+  applyingPermission.value = true
+  
+  try {
+    const filePath = getFullPath(permissionFile.value)
+    const permission = numericPermission.value.padStart(3, '0')
+    
+    // 验证权限格式
+    if (!/^[0-7]{3}$/.test(permission)) {
+      toastRef.value?.error('权限格式不正确，请输入3位八进制数字 (0-7)')
+      return
+    }
+    
+    if (window.electronAPI && window.electronAPI.ssh) {
+      let chmodCommand
+      
+      if (applyRecursively.value && permissionFile.value.isDirectory) {
+        // 递归修改权限
+        chmodCommand = `chmod -R ${permission} "${filePath}"`
+        
+        // 显示确认对话框
+        try {
+          await ElMessageBox.confirm(
+            `确定要递归修改文件夹 "${permissionFile.value.name}" 及其所有子文件和子文件夹的权限为 ${permission} 吗？\n\n这个操作可能需要较长时间，并且会影响所有子项目。`,
+            '确认递归修改权限',
+            {
+              confirmButtonText: '确认修改',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }
+          )
+        } catch (error) {
+          // 用户取消
+          return
+        }
+      } else {
+        // 只修改当前文件/文件夹权限
+        chmodCommand = `chmod ${permission} "${filePath}"`
+      }
+      
+      console.log('执行权限修改命令:', chmodCommand)
+      
+      const result = await window.electronAPI.ssh.execute(
+        props.connectionId,
+        chmodCommand
+      )
+      
+      if (result.success) {
+        const itemType = permissionFile.value.isDirectory ? '文件夹' : '文件'
+        const recursiveText = applyRecursively.value ? '（递归）' : ''
+        
+        toastRef.value?.success(`${itemType}权限已修改为 ${permission} ${recursiveText}`)
+        
+        // 关闭对话框
+        permissionDialogVisible.value = false
+        
+        // 刷新文件列表
+        await loadFiles(true)
+      } else {
+        throw new Error(result.message || '权限修改失败')
+      }
+    } else {
+      toastRef.value?.error('当前环境不支持权限修改')
+    }
+  } catch (error) {
+    if (error.message !== 'cancel') {
+      toastRef.value?.error(`权限修改失败: ${error.message}`)
+    }
+  } finally {
+    applyingPermission.value = false
   }
 }
 
@@ -1979,7 +2428,8 @@ const startFileWatcherPolling = (connectionId, localPath, remotePath, fileName) 
             const uploadResult = await window.electronAPI.sftp.upload(
               connectionId,
               localPath,
-              remotePath
+              remotePath,
+              null // 轮询上传不需要进度显示
             )
             
             if (uploadResult && uploadResult.success) {
@@ -2194,7 +2644,7 @@ onUnmounted(() => {
 
 .files-table {
   background: transparent !important;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .files-table :deep(.el-table__inner-wrapper) {
@@ -2260,9 +2710,9 @@ onUnmounted(() => {
 .file-name {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   font-weight: 500;
-  font-size: 13px;
+  font-size: 12px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -2374,6 +2824,151 @@ onUnmounted(() => {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* 权限修改对话框样式 */
+.permission-dialog-content {
+  padding: 0;
+}
+
+.file-info {
+  margin-bottom: 20px;
+}
+
+.file-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.file-path {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  background: var(--bg-secondary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.permission-settings h4 {
+  margin: 0 0 20px 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.numeric-permission {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.numeric-permission label {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 80px;
+}
+
+.permission-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: 8px;
+}
+
+.visual-permissions {
+  margin-bottom: 20px;
+}
+
+.permission-group {
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.permission-group h5 {
+  margin: 0 0 12px 0;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.permission-checkboxes {
+  display: flex;
+  gap: 20px;
+}
+
+.permission-checkboxes .el-checkbox {
+  margin-right: 0;
+}
+
+.permission-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+}
+
+.permission-preview label {
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 80px;
+}
+
+.permission-preview code {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent-color);
+  background: var(--bg-secondary);
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+}
+
+.recursive-option {
+  padding: 16px;
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.recursive-option .el-checkbox {
+  margin-bottom: 8px;
+}
+
+.recursive-hint {
+  font-size: 12px;
+  color: #856404;
+  margin-left: 24px;
+}
+
+/* 暗色主题下的递归选项样式 */
+@media (prefers-color-scheme: dark) {
+  .recursive-option {
+    background: rgba(255, 193, 7, 0.1);
+    border-color: rgba(255, 193, 7, 0.3);
+  }
+  
+  .recursive-hint {
+    color: #ffc107;
   }
 }
 </style>

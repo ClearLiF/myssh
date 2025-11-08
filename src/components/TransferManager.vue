@@ -65,6 +65,7 @@
                 <div class="task-details">
                   <span class="task-size">{{ formatSize(task.currentSize) }} / {{ formatSize(task.totalSize) }}</span>
                   <span class="task-speed" v-if="task.status === 'uploading' && task.speed > 0">{{ formatSpeed(task.speed) }}</span>
+                  <span class="task-status" v-if="task.status === 'processing'">正在处理...</span>
                 </div>
                 <el-progress 
                   :percentage="task.percentage" 
@@ -74,6 +75,15 @@
               </div>
 
               <div class="task-actions">
+                <el-button 
+                  v-if="task.status === 'uploading' || task.status === 'processing' || task.status === 'downloading'" 
+                  text 
+                  :icon="Close" 
+                  size="small"
+                  @click="cancelTask(task)"
+                  title="取消传输"
+                  type="danger"
+                />
                 <el-button 
                   v-if="task.status === 'success' || task.status === 'error'" 
                   text 
@@ -249,7 +259,11 @@ const toastRef = ref(null)
 
 // 当前活跃任务数
 const activeTasksCount = computed(() => {
-  return tasks.value.filter(t => t.status === 'uploading' || t.status === 'processing').length
+  return tasks.value.filter(t => 
+    t.status === 'uploading' || 
+    t.status === 'processing' || 
+    t.status === 'downloading'
+  ).length
 })
 
 // 总速度
@@ -359,6 +373,27 @@ const addToHistory = (task) => {
   
   // 保存到本地存储
   saveHistory()
+}
+
+// 取消任务
+const cancelTask = async (task) => {
+  try {
+    if (window.electronAPI && window.electronAPI.sftp && window.electronAPI.sftp.cancel) {
+      const result = await window.electronAPI.sftp.cancel(task.id)
+      if (result.success) {
+        // 更新任务状态为已取消
+        updateTask(task.id, {
+          status: 'error',
+          percentage: 0
+        })
+        console.log('任务已取消:', task.name)
+      } else {
+        console.error('取消任务失败:', result.message)
+      }
+    }
+  } catch (error) {
+    console.error('取消任务时出错:', error)
+  }
 }
 
 // 移除任务
@@ -514,10 +549,34 @@ const loadHistory = () => {
 onMounted(() => {
   loadHistory()
   document.addEventListener('click', handleClickOutside)
+  
+  // 设置SFTP进度监听
+  if (window.electronAPI && window.electronAPI.sftp && window.electronAPI.sftp.onProgress) {
+    window.electronAPI.sftp.onProgress((progressData) => {
+      const { taskId, transferred, total, percentage, speed, filename } = progressData
+      
+      // 查找对应的任务并更新进度
+      const task = tasks.value.find(t => t.id === taskId)
+      if (task) {
+        updateTask(taskId, {
+          currentSize: transferred,
+          totalSize: total,
+          percentage: percentage,
+          speed: speed || 0,
+          status: progressData.type === 'upload' ? 'uploading' : 'downloading'
+        })
+      }
+    })
+  }
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside)
+  
+  // 移除SFTP进度监听
+  if (window.electronAPI && window.electronAPI.sftp && window.electronAPI.sftp.removeProgressListener) {
+    window.electronAPI.sftp.removeProgressListener()
+  }
 })
 
 // 暴露方法给父组件
@@ -722,6 +781,12 @@ defineExpose({
 .task-speed {
   color: #409eff;
   font-weight: 500;
+}
+
+.task-status {
+  color: #e6a23c;
+  font-weight: 500;
+  font-style: italic;
 }
 
 .task-actions {

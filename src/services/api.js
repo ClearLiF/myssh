@@ -313,6 +313,28 @@ export const authAPI = {
       console.error('解析 otherInfo 失败:', error)
       return {}
     }
+  },
+
+  // 刷新用户信息（从服务器重新获取）
+  async refreshUserInfo() {
+    try {
+      const userId = this.getUserId()
+      if (!userId) {
+        return { success: false, error: '用户未登录' }
+      }
+
+      const data = await apiService.get(`/sass/sshUser/queryById/${userId}`)
+      
+      if (data.success && data.queryResult) {
+        // 更新本地用户信息
+        apiConfig.saveUserInfo(data.queryResult)
+        return { success: true, data: data.queryResult }
+      } else {
+        return { success: false, error: data.message || '刷新用户信息失败' }
+      }
+    } catch (error) {
+      return { success: false, error: error.message }
+    }
   }
 }
 

@@ -32,7 +32,8 @@
               class="status-dot"
               :class="{
                 'status-connected': tunnel.isConnected,
-                'status-disconnected': !tunnel.isConnected,
+                'status-disconnected': !tunnel.isConnected && tunnel.backendStatus !== 'failed',
+                'status-failed': tunnel.backendStatus === 'failed',
                 'status-checking': tunnel.checking,
                 'status-starting': tunnel.starting,
                 'status-stopping': tunnel.stopping
@@ -71,6 +72,9 @@
               <template v-else-if="tunnel.isConnected">
                 <span class="status-text status-success">● 已连接</span>
               </template>
+              <template v-else-if="tunnel.backendStatus === 'failed'">
+                <span class="status-text status-failed" :title="tunnel.backendError">✗ 启动失败</span>
+              </template>
               <template v-else>
                 <span class="status-text status-error">○ 未连接</span>
               </template>
@@ -90,13 +94,13 @@
               <el-button
                 v-else
                 size="small"
-                type="primary"
+                :type="tunnel.backendStatus === 'failed' ? 'warning' : 'primary'"
                 text
                 @click="startTunnel(tunnel)"
                 :loading="tunnel.starting"
                 :disabled="tunnel.stopping || tunnel.checking"
               >
-                启动
+                {{ tunnel.backendStatus === 'failed' ? '重试' : '启动' }}
               </el-button>
             </div>
           </div>
@@ -168,10 +172,12 @@ const loadTunnels = async () => {
     if (result.success && result.tunnels) {
       tunnels.value = result.tunnels.map(t => ({
         ...t,
-        isConnected: false,
+        isConnected: t.status === 'active', // 根据后端状态设置连接状态
         checking: false,
         starting: false,
-        stopping: false
+        stopping: false,
+        backendStatus: t.status, // 保存后端状态
+        backendError: t.error // 保存后端错误信息
       }))
 
       // 自动检测所有隧道状态
@@ -238,11 +244,15 @@ const startTunnel = async (tunnel) => {
     if (result.success) {
       ElMessage.success(`端口转发 "${tunnel.name}" 已启动`)
       tunnel.isConnected = true
+      tunnel.backendStatus = 'active' // 清除失败状态
+      tunnel.backendError = null // 清除错误信息
       // 启动后立即检查状态
       await checkTunnelStatus(tunnel)
     } else {
       ElMessage.error(result.message || '启动失败')
       tunnel.isConnected = false
+      tunnel.backendStatus = 'failed' // 标记为失败状态
+      tunnel.backendError = result.message || '启动失败' // 保存错误信息
     }
   } catch (error) {
     console.error('启动隧道失败:', error)
@@ -286,6 +296,9 @@ const getTunnelStatusText = (tunnel) => {
   if (tunnel.stopping) return '关闭中...'
   if (tunnel.checking) return '检测中...'
   if (tunnel.isConnected) return '已连接'
+  if (tunnel.backendStatus === 'failed') {
+    return `启动失败: ${tunnel.backendError || '未知错误'}`
+  }
   return '未连接'
 }
 
@@ -572,6 +585,12 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
+.status-failed {
+  background: #f56c6c;
+  box-shadow: 0 0 6px rgba(245, 108, 108, 0.6);
+  animation: pulse-red 2s ease-in-out infinite;
+}
+
 .status-checking,
 .status-starting,
 .status-stopping {
@@ -599,6 +618,17 @@ onUnmounted(() => {
   50% {
     opacity: 0.7;
     box-shadow: 0 0 10px rgba(230, 162, 60, 0.8);
+  }
+}
+
+@keyframes pulse-red {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 6px rgba(245, 108, 108, 0.6);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 10px rgba(245, 108, 108, 0.8);
   }
 }
 
@@ -685,6 +715,11 @@ onUnmounted(() => {
 
 .status-error {
   color: var(--text-tertiary);
+}
+
+.status-failed {
+  color: #f56c6c;
+  font-weight: 600;
 }
 
 .is-loading {

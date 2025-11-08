@@ -1198,6 +1198,8 @@ onMounted(async () => {
   border-bottom: 1px solid var(--border-color-light);
   background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
   backdrop-filter: blur(10px);
+  min-height: 50px;
+  flex-shrink: 0;
 }
 
 .header-title {
@@ -1222,6 +1224,22 @@ onMounted(async () => {
 .header-buttons {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: fit-content;
+  z-index: 10;
+}
+
+.header-buttons .el-button {
+  position: relative;
+  z-index: 11;
+  pointer-events: auto;
+}
+
+.header-buttons .el-button.is-circle {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
 }
 
 .search-box {

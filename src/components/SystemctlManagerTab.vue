@@ -38,89 +38,26 @@
 
     <!-- 主内容区 -->
     <div class="systemctl-content">
-      <!-- 统计卡片 -->
-      <div class="stats-cards">
-        <div class="stat-card stat-card-total" @click="serviceFilter = 'all'">
-          <div class="stat-icon">
-            <el-icon :size="24"><Setting /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ services.length }}</div>
-            <div class="stat-label">服务总数</div>
-          </div>
-        </div>
-        <div class="stat-card stat-card-active" @click="serviceFilter = 'active'">
-          <div class="stat-icon">
-            <el-icon :size="24"><VideoPlay /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ activeServicesCount }}</div>
-            <div class="stat-label">运行中</div>
-          </div>
-        </div>
-        <div class="stat-card stat-card-inactive" @click="serviceFilter = 'inactive'">
-          <div class="stat-icon">
-            <el-icon :size="24"><VideoPause /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ inactiveServicesCount }}</div>
-            <div class="stat-label">已停止</div>
-          </div>
-        </div>
-        <div class="stat-card stat-card-failed" @click="serviceFilter = 'failed'">
-          <div class="stat-icon">
-            <el-icon :size="24"><WarningFilled /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ failedServicesCount }}</div>
-            <div class="stat-label">失败</div>
-          </div>
-        </div>
-        <div class="stat-card stat-card-enabled">
-          <div class="stat-icon">
-            <el-icon :size="24"><Check /></el-icon>
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ enabledServicesCount }}</div>
-            <div class="stat-label">已启用自启</div>
-          </div>
-        </div>
-      </div>
 
       <!-- 服务列表 -->
       <div class="services-section">
         <div class="section-header">
           <div class="section-title">
             <el-icon><List /></el-icon>
-            <span>系统服务列表</span>
+            <span>常用服务列表</span>
             <el-tag size="small" type="info">{{ filteredServices.length }}</el-tag>
           </div>
           <div style="display: flex; gap: 12px; align-items: center;">
-            <el-radio-group v-model="viewMode" size="small">
-              <el-radio-button label="list">列表视图</el-radio-button>
-              <el-radio-button label="group">分组视图</el-radio-button>
-            </el-radio-group>
-            <el-checkbox v-model="showOnlyUserServices" size="small" border>
-              仅显示常用服务
-            </el-checkbox>
             <el-radio-group v-model="serviceFilter" size="small">
               <el-radio-button label="all">全部</el-radio-button>
               <el-radio-button label="active">运行中</el-radio-button>
               <el-radio-button label="inactive">已停止</el-radio-button>
-              <el-radio-button label="failed">失败</el-radio-button>
-            </el-radio-group>
-            <el-radio-group v-model="serviceType" size="small">
-              <el-radio-button label="all">所有类型</el-radio-button>
-              <el-radio-button label="service">服务</el-radio-button>
-              <el-radio-button label="timer">定时器</el-radio-button>
-              <el-radio-button label="socket">套接字</el-radio-button>
             </el-radio-group>
           </div>
         </div>
 
         <!-- 列表视图 -->
         <el-table
-            v-if="viewMode === 'list'"
             :data="filteredServices"
             stripe
             :height="serviceTableHeight"
@@ -237,174 +174,6 @@
           </el-table-column>
         </el-table>
 
-        <!-- 分组视图 -->
-        <div v-else class="services-group-view" :style="{ height: serviceTableHeight }">
-          <!-- 系统服务组 -->
-          <div class="service-group-card">
-            <div class="group-header" @click="toggleGroup('system')">
-              <div class="group-header-left">
-                <el-icon class="expand-icon" :class="{ expanded: expandedGroups.has('system') }">
-                  <ArrowRight />
-                </el-icon>
-                <el-icon :size="20" color="#409EFF"><Setting /></el-icon>
-                <span class="group-name">系统服务</span>
-                <el-tag type="primary" size="small">{{ systemServices.length }} 个服务</el-tag>
-                <el-tag
-                    :type="getGroupRunningType(systemServices)"
-                    size="small"
-                >
-                  {{ getGroupRunningCount(systemServices) }} 运行中
-                </el-tag>
-              </div>
-            </div>
-
-            <!-- 系统服务列表 -->
-            <transition name="expand">
-              <div v-show="expandedGroups.has('system')" class="group-services">
-                <div
-                    v-for="service in systemServices"
-                    :key="service.unit"
-                    class="service-item"
-                    @click="handleServiceClick(service)"
-                    @contextmenu.prevent="handleServiceContextMenu(service, null, $event)"
-                    :class="{ 'selected': selectedService?.unit === service.unit }"
-                >
-                  <div class="service-item-left">
-                    <el-tag :type="getServiceStatusType(service.activeState)" size="small">
-                      {{ getServiceStatusText(service.activeState) }}
-                    </el-tag>
-                    <el-icon v-if="service.unit.endsWith('.timer')" :size="16" color="#E6A23C"><Timer /></el-icon>
-                    <el-icon v-else-if="service.unit.endsWith('.socket')" :size="16" color="#67C23A"><Connection /></el-icon>
-                    <el-icon v-else :size="16" color="#409EFF"><Setting /></el-icon>
-                    <span class="service-name">{{ service.name }}</span>
-                    <code class="service-unit-small">{{ service.unit }}</code>
-                  </div>
-                  <div class="service-item-middle">
-                    <span class="service-description">{{ service.description || '-' }}</span>
-                  </div>
-                  <div class="service-item-right">
-                    <el-button-group size="small">
-                      <el-button
-                          v-if="service.activeState !== 'active'"
-                          size="small"
-                          type="success"
-                          @click.stop="startService(service)"
-                          :loading="service.starting"
-                          :disabled="service.stopping || service.restarting"
-                          title="启动服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.starting }"><VideoPlay /></el-icon>
-                      </el-button>
-                      <el-button
-                          v-else
-                          size="small"
-                          type="warning"
-                          @click.stop="stopService(service)"
-                          :loading="service.stopping"
-                          :disabled="service.starting || service.restarting"
-                          title="停止服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.stopping }"><VideoPause /></el-icon>
-                      </el-button>
-                      <el-button
-                          size="small"
-                          @click.stop="restartService(service)"
-                          :loading="service.restarting"
-                          :disabled="service.starting || service.stopping"
-                          title="重启服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.restarting }"><Refresh /></el-icon>
-                      </el-button>
-                    </el-button-group>
-                  </div>
-                </div>
-              </div>
-            </transition>
-          </div>
-
-          <!-- 用户服务组 -->
-          <div class="service-group-card">
-            <div class="group-header" @click="toggleGroup('user')">
-              <div class="group-header-left">
-                <el-icon class="expand-icon" :class="{ expanded: expandedGroups.has('user') }">
-                  <ArrowRight />
-                </el-icon>
-                <el-icon :size="20" color="#67C23A"><User /></el-icon>
-                <span class="group-name">用户服务</span>
-                <el-tag type="success" size="small">{{ userServices.length }} 个服务</el-tag>
-                <el-tag
-                    :type="getGroupRunningType(userServices)"
-                    size="small"
-                >
-                  {{ getGroupRunningCount(userServices) }} 运行中
-                </el-tag>
-              </div>
-            </div>
-
-            <!-- 用户服务列表 -->
-            <transition name="expand">
-              <div v-show="expandedGroups.has('user')" class="group-services">
-                <div
-                    v-for="service in userServices"
-                    :key="service.unit"
-                    class="service-item"
-                    @click="handleServiceClick(service)"
-                    @contextmenu.prevent="handleServiceContextMenu(service, null, $event)"
-                    :class="{ 'selected': selectedService?.unit === service.unit }"
-                >
-                  <div class="service-item-left">
-                    <el-tag :type="getServiceStatusType(service.activeState)" size="small">
-                      {{ getServiceStatusText(service.activeState) }}
-                    </el-tag>
-                    <el-icon v-if="service.unit.endsWith('.timer')" :size="16" color="#E6A23C"><Timer /></el-icon>
-                    <el-icon v-else-if="service.unit.endsWith('.socket')" :size="16" color="#67C23A"><Connection /></el-icon>
-                    <el-icon v-else :size="16" color="#409EFF"><Setting /></el-icon>
-                    <span class="service-name">{{ service.name }}</span>
-                    <code class="service-unit-small">{{ service.unit }}</code>
-                  </div>
-                  <div class="service-item-middle">
-                    <span class="service-description">{{ service.description || '-' }}</span>
-                  </div>
-                  <div class="service-item-right">
-                    <el-button-group size="small">
-                      <el-button
-                          v-if="service.activeState !== 'active'"
-                          size="small"
-                          type="success"
-                          @click.stop="startService(service)"
-                          :loading="service.starting"
-                          :disabled="service.stopping || service.restarting"
-                          title="启动服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.starting }"><VideoPlay /></el-icon>
-                      </el-button>
-                      <el-button
-                          v-else
-                          size="small"
-                          type="warning"
-                          @click.stop="stopService(service)"
-                          :loading="service.stopping"
-                          :disabled="service.starting || service.restarting"
-                          title="停止服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.stopping }"><VideoPause /></el-icon>
-                      </el-button>
-                      <el-button
-                          size="small"
-                          @click.stop="restartService(service)"
-                          :loading="service.restarting"
-                          :disabled="service.starting || service.stopping"
-                          title="重启服务"
-                      >
-                        <el-icon :class="{ 'spin-icon': service.restarting }"><Refresh /></el-icon>
-                      </el-button>
-                    </el-button-group>
-                  </div>
-                </div>
-              </div>
-            </transition>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -555,9 +324,16 @@
         <div class="dialog-section">
           <div class="section-title">
             <el-icon><Star /></el-icon>
-            <span>系统预定义服务（{{ defaultCommonServices.length }}个）</span>
+            <span>系统预定义服务</span>
+            <el-tag size="small" type="info">{{ defaultCommonServices.length }}个</el-tag>
           </div>
-          <div class="services-tags">
+          <div class="services-preview">
+            <span class="preview-text">nginx, mysql, redis, docker, ssh, postgresql, mongodb...</span>
+            <el-button size="small" text type="primary" @click="showAllPredefined = !showAllPredefined">
+              {{ showAllPredefined ? '收起' : '查看全部' }}
+            </el-button>
+          </div>
+          <div v-if="showAllPredefined" class="services-tags">
             <el-tag
                 v-for="service in defaultCommonServices"
                 :key="service"
@@ -579,16 +355,30 @@
             <span>自定义服务（{{ customCommonServices.length }}个）</span>
           </div>
           <div class="add-service-form">
-            <el-input
+            <el-autocomplete
                 v-model="newServiceKeyword"
+                :fetch-suggestions="searchServiceSuggestions"
                 placeholder="输入服务关键词，例如: myapp"
                 size="small"
                 style="width: 300px;"
                 @keyup.enter="addCustomService"
-            />
+                @select="handleServiceSelect"
+                clearable
+            >
+              <template #default="{ item }">
+                <div class="suggestion-item">
+                  <el-icon><Setting /></el-icon>
+                  <span>{{ item.value }}</span>
+                </div>
+              </template>
+            </el-autocomplete>
             <el-button size="small" type="primary" @click="addCustomService">
               <el-icon><Plus /></el-icon>
               添加
+            </el-button>
+            <el-button size="small" @click="loadServiceSuggestions" :loading="loadingSuggestions">
+              <el-icon><Refresh /></el-icon>
+              刷新建议
             </el-button>
           </div>
           <div class="services-tags" style="margin-top: 12px;">
@@ -622,7 +412,7 @@
           >
             <ul style="margin: 8px 0; padding-left: 20px;">
               <li>添加服务关键词后，包含该关键词的服务会被标记为"常用服务"</li>
-              <li>勾选"仅显示常用服务"可快速过滤出这些服务</li>
+              <li>输入时会显示服务建议，点击"刷新建议"获取最新的服务列表</li>
               <li>自定义服务列表会自动保存到本地</li>
               <li>示例：添加 "myapp" 后，"myapp.service" 和 "myapp-worker.service" 都会被识别</li>
             </ul>
@@ -696,8 +486,6 @@ const searchKeyword = ref('')
 const autoRefresh = ref(false)
 const serviceFilter = ref('all')
 const serviceType = ref('all')
-const viewMode = ref('list') // 'list' 或 'group'
-const expandedGroups = ref(new Set(['system', 'user'])) // 默认展开所有组
 const showOnlyUserServices = ref(true) // 默认只显示常用服务，提升加载速度
 const loading = ref(false)
 const selectedService = ref(null)
@@ -717,6 +505,9 @@ let logsStreamInterval = null
 const showCustomServicesDialog = ref(false)
 const customCommonServices = ref([])
 const newServiceKeyword = ref('')
+const showAllPredefined = ref(false)
+const serviceSuggestions = ref([])
+const loadingSuggestions = ref(false)
 
 // 右键菜单
 const contextMenuVisible = ref(false)
@@ -758,51 +549,16 @@ const isSystemService = (serviceName) => {
   return systemServicePrefixes.some(prefix => lowerName.startsWith(prefix.toLowerCase()))
 }
 
-// 统计数据
-const activeServicesCount = computed(() => {
-  return services.value.filter(s => s.activeState === 'active').length
-})
-
-const inactiveServicesCount = computed(() => {
-  return services.value.filter(s => s.activeState === 'inactive').length
-})
-
-const failedServicesCount = computed(() => {
-  return services.value.filter(s => s.activeState === 'failed').length
-})
-
-const enabledServicesCount = computed(() => {
-  return services.value.filter(s => s.enabled === 'enabled').length
-})
 
 // 过滤后的服务列表
 const filteredServices = computed(() => {
   let result = services.value
-
-  // 常用服务过滤
-  if (showOnlyUserServices.value) {
-    result = result.filter(s => {
-      const serviceName = s.name.toLowerCase()
-      return commonServices.value.some(common => serviceName.includes(common.toLowerCase()))
-    })
-  }
 
   // 状态过滤
   if (serviceFilter.value === 'active') {
     result = result.filter(s => s.activeState === 'active')
   } else if (serviceFilter.value === 'inactive') {
     result = result.filter(s => s.activeState === 'inactive')
-  } else if (serviceFilter.value === 'failed') {
-    result = result.filter(s => s.activeState === 'failed')
-  }
-
-  // 类型过滤
-  if (serviceType.value === 'service') {
-    result = result.filter(s => s.unit.endsWith('.service'))
-  } else if (serviceType.value === 'timer') {
-    result = result.filter(s => s.unit.endsWith('.timer'))
-  } else if (serviceType.value === 'socket') {
-    result = result.filter(s => s.unit.endsWith('.socket'))
   }
 
   // 搜索过滤
@@ -818,43 +574,10 @@ const filteredServices = computed(() => {
   return result
 })
 
-// 系统服务列表
-const systemServices = computed(() => {
-  return filteredServices.value.filter(s => isSystemService(s.name))
-})
-
-// 用户服务列表
-const userServices = computed(() => {
-  return filteredServices.value.filter(s => !isSystemService(s.name))
-})
-
-// 获取分组运行中的服务数量
-const getGroupRunningCount = (services) => {
-  return services.filter(s => s.activeState === 'active').length
-}
-
-// 获取分组运行状态标签类型
-const getGroupRunningType = (services) => {
-  const runningCount = getGroupRunningCount(services)
-  if (runningCount === 0) return 'info'
-  if (runningCount === services.length) return 'success'
-  return 'warning'
-}
-
-// 切换分组展开/折叠
-const toggleGroup = (groupName) => {
-  if (expandedGroups.value.has(groupName)) {
-    expandedGroups.value.delete(groupName)
-  } else {
-    expandedGroups.value.add(groupName)
-  }
-  // 触发响应式更新
-  expandedGroups.value = new Set(expandedGroups.value)
-}
 
 // 服务表格高度
 const serviceTableHeight = computed(() => {
-  return 'calc(100vh - 310px)' // 为统计卡片留出空间
+  return 'calc(100vh - 200px)' // 简化后的高度计算
 })
 
 // 日志高亮处理
@@ -1081,10 +804,49 @@ const loadCustomServices = () => {
   }
 }
 
+// 加载服务建议
+const loadServiceSuggestions = async () => {
+  if (!window.electronAPI || !props.connectionId) {
+    return
+  }
+
+  loadingSuggestions.value = true
+  try {
+    const result = await window.electronAPI.ssh.getAllServiceNames(props.connectionId)
+    if (result.success && result.serviceNames) {
+      serviceSuggestions.value = result.serviceNames.map(name => ({ value: name }))
+    }
+  } catch (error) {
+    console.error('加载服务建议失败:', error)
+  } finally {
+    loadingSuggestions.value = false
+  }
+}
+
+// 搜索服务建议
+const searchServiceSuggestions = (queryString, callback) => {
+  if (!queryString) {
+    callback([])
+    return
+  }
+
+  const query = queryString.toLowerCase()
+  const results = serviceSuggestions.value.filter(item => 
+    item.value.toLowerCase().includes(query)
+  ).slice(0, 10) // 限制显示数量
+
+  callback(results)
+}
+
+// 处理服务选择
+const handleServiceSelect = (item) => {
+  newServiceKeyword.value = item.value
+}
+
 // 刷新服务列表
 const refreshServices = async () => {
   if (!window.electronAPI || !props.connectionId) {
-    // 模拟数据
+    // 模拟数据 - 只显示常用服务
     services.value = [
       {
         name: 'nginx',
@@ -1163,7 +925,14 @@ const refreshServices = async () => {
 
   loading.value = true
   try {
-    const result = await window.electronAPI.ssh.getSystemctlServices(props.connectionId)
+    // 使用优化后的 API，只获取常用服务并包含启用状态
+    const result = await window.electronAPI.ssh.getSystemctlServices(props.connectionId, {
+      limit: 100,
+      offset: 0,
+      onlyCommon: true,
+      includeEnabled: true
+    })
+    
     if (result.success && result.services) {
       services.value = result.services.map(s => ({
         ...s,
@@ -1173,7 +942,7 @@ const refreshServices = async () => {
         enabling: false,
         disabling: false
       }))
-      systemInfo.value = { totalServices: services.value.length }
+      systemInfo.value = { totalServices: result.total || services.value.length }
     } else {
       ElMessage.error('获取服务列表失败: ' + (result.message || '未知错误'))
     }
@@ -1572,299 +1341,7 @@ onUnmounted(() => {
   padding: 16px;
 }
 
-/* 统计卡片 */
-.stats-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
-  margin-bottom: 8px;
-}
 
-.stat-card {
-  background: var(--card-bg);
-  border-radius: 12px;
-  padding: 20px;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  border: 2px solid transparent;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-}
-
-.stat-icon {
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.stat-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: 700;
-  line-height: 1.2;
-  margin-bottom: 4px;
-}
-
-.stat-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-/* 不同状态卡片的配色 */
-.stat-card-total {
-  border-color: rgba(102, 126, 234, 0.2);
-}
-
-.stat-card-total:hover {
-  border-color: rgba(102, 126, 234, 0.5);
-  background: rgba(102, 126, 234, 0.05);
-}
-
-.stat-card-total .stat-icon {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.stat-card-total .stat-value {
-  color: #667eea;
-}
-
-.stat-card-active {
-  border-color: rgba(103, 194, 58, 0.2);
-}
-
-.stat-card-active:hover {
-  border-color: rgba(103, 194, 58, 0.5);
-  background: rgba(103, 194, 58, 0.05);
-}
-
-.stat-card-active .stat-icon {
-  background: linear-gradient(135deg, #67c23a 0%, #85ce61 100%);
-  color: white;
-}
-
-.stat-card-active .stat-value {
-  color: #67c23a;
-}
-
-.stat-card-inactive {
-  border-color: rgba(144, 147, 153, 0.2);
-}
-
-.stat-card-inactive:hover {
-  border-color: rgba(144, 147, 153, 0.5);
-  background: rgba(144, 147, 153, 0.05);
-}
-
-.stat-card-inactive .stat-icon {
-  background: linear-gradient(135deg, #909399 0%, #b1b3b8 100%);
-  color: white;
-}
-
-.stat-card-inactive .stat-value {
-  color: #909399;
-}
-
-.stat-card-failed {
-  border-color: rgba(245, 108, 108, 0.2);
-}
-
-.stat-card-failed:hover {
-  border-color: rgba(245, 108, 108, 0.5);
-  background: rgba(245, 108, 108, 0.05);
-}
-
-.stat-card-failed .stat-icon {
-  background: linear-gradient(135deg, #f56c6c 0%, #f78989 100%);
-  color: white;
-}
-
-.stat-card-failed .stat-value {
-  color: #f56c6c;
-}
-
-.stat-card-enabled {
-  border-color: rgba(64, 158, 255, 0.2);
-}
-
-.stat-card-enabled:hover {
-  border-color: rgba(64, 158, 255, 0.5);
-  background: rgba(64, 158, 255, 0.05);
-}
-
-.stat-card-enabled .stat-icon {
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
-  color: white;
-}
-
-.stat-card-enabled .stat-value {
-  color: #409eff;
-}
-
-/* 分组视图 */
-.services-group-view {
-  overflow-y: auto;
-  padding: 12px;
-}
-
-.service-group-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  overflow: hidden;
-  transition: all 0.3s ease;
-}
-
-.service-group-card:hover {
-  border-color: var(--color-primary);
-  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-}
-
-.group-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  cursor: pointer;
-  transition: background-color 0.2s ease;
-  user-select: none;
-}
-
-.group-header:hover {
-  background: var(--hover-bg);
-}
-
-.group-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-}
-
-.expand-icon {
-  transition: transform 0.3s ease;
-  color: var(--text-secondary);
-}
-
-.expand-icon.expanded {
-  transform: rotate(90deg);
-}
-
-.group-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.group-services {
-  border-top: 1px solid var(--border-color);
-}
-
-.service-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color-light);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  background: var(--bg-primary);
-}
-
-.service-item:last-child {
-  border-bottom: none;
-}
-
-.service-item:hover {
-  background: var(--hover-bg);
-}
-
-.service-item.selected {
-  background: rgba(102, 126, 234, 0.1);
-  border-left: 3px solid var(--color-primary);
-}
-
-.service-item-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 2;
-  min-width: 0;
-}
-
-.service-item-middle {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 3;
-  min-width: 0;
-  padding: 0 12px;
-}
-
-.service-item-right {
-  display: flex;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.service-name {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.service-unit-small {
-  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
-  font-size: 11px;
-  padding: 2px 6px;
-  background: rgba(102, 126, 234, 0.1);
-  border-radius: 4px;
-  color: #667eea;
-  flex-shrink: 0;
-}
-
-.service-description {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 展开/收起动画 */
-.expand-enter-active,
-.expand-leave-active {
-  transition: all 0.3s ease;
-  max-height: 2000px;
-  overflow: hidden;
-}
-
-.expand-enter-from,
-.expand-leave-to {
-  max-height: 0;
-  opacity: 0;
-}
 
 .services-section {
   flex: 1;
@@ -2147,6 +1624,22 @@ onUnmounted(() => {
   margin-bottom: 12px;
 }
 
+.services-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.preview-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
 .services-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2161,6 +1654,18 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.suggestion-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.suggestion-item span {
+  font-family: 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 12px;
 }
 
 .dialog-tips {

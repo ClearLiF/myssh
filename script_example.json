@@ -1,0 +1,111 @@
+{
+  "script": [
+    {
+      "id": "1",
+      "name": "系统信息检查",
+      "description": "检查系统基本信息，包括CPU、内存、磁盘等",
+      "type": "shell",
+      "content": "#!/bin/bash\necho \"系统信息检查\"\necho \"===============\"\necho \"主机名: $(hostname)\"\necho \"系统: $(uname -a)\"\necho \"\"\necho \"内存使用情况:\"\nfree -h\necho \"\"\necho \"磁盘使用情况:\"\ndf -h",
+      "params": [],
+      "createdAt": "2024-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "2",
+      "name": "查找大文件",
+      "description": "在指定目录查找大于指定大小的文件",
+      "type": "shell",
+      "content": "#!/bin/bash\necho \"在目录 ${directory} 中查找大于 ${size}MB 的文件...\"\nfind ${directory} -type f -size +${size}M -exec ls -lh {} \\; | awk '{ print $9 \": \" $5 }'",
+      "params": [
+        {
+          "name": "directory",
+          "defaultValue": "/var/log",
+          "description": "要搜索的目录路径"
+        },
+        {
+          "name": "size",
+          "defaultValue": "100",
+          "description": "文件大小阈值（MB）"
+        }
+      ],
+      "createdAt": "2024-01-14T15:20:00.000Z"
+    },
+    {
+      "id": "3",
+      "name": "批量重命名文件",
+      "description": "将指定目录下的文件批量重命名，添加前缀或后缀",
+      "type": "shell",
+      "content": "#!/bin/bash\necho \"批量重命名 ${directory} 目录下的 ${extension} 文件\"\necho \"添加前缀: ${prefix}\"\ncd ${directory}\nfor file in *.${extension}; do\n  if [ -f \"$file\" ]; then\n    mv \"$file\" \"${prefix}$file\"\n    echo \"重命名: $file -> ${prefix}$file\"\n  fi\ndone\necho \"重命名完成！\"",
+      "params": [
+        {
+          "name": "directory",
+          "defaultValue": "/tmp",
+          "description": "目标目录"
+        },
+        {
+          "name": "extension",
+          "defaultValue": "txt",
+          "description": "文件扩展名"
+        },
+        {
+          "name": "prefix",
+          "defaultValue": "backup_",
+          "description": "添加的前缀"
+        }
+      ],
+      "createdAt": "2024-01-13T09:15:00.000Z"
+    },
+    {
+      "id": "4",
+      "name": "Docker 容器清理",
+      "description": "清理停止的容器和未使用的镜像",
+      "type": "shell",
+      "content": "#!/bin/bash\necho \"清理 Docker 资源...\"\necho \"\"\necho \"停止的容器:\"\ndocker ps -a --filter \"status=exited\" --format \"{{.ID}} {{.Names}}\"\necho \"\"\nread -p \"是否删除这些容器? (y/n) \" -n 1 -r\necho\nif [[ $REPLY =~ ^[Yy]$ ]]; then\n  docker container prune -f\n  echo \"容器已清理\"\nfi\necho \"\"\necho \"未使用的镜像:\"\ndocker images --filter \"dangling=true\" --format \"{{.ID}} {{.Repository}}:{{.Tag}}\"\necho \"\"\nread -p \"是否删除这些镜像? (y/n) \" -n 1 -r\necho\nif [[ $REPLY =~ ^[Yy]$ ]]; then\n  docker image prune -f\n  echo \"镜像已清理\"\nfi\necho \"\"\necho \"清理完成！\"",
+      "params": [],
+      "createdAt": "2024-01-12T14:45:00.000Z"
+    },
+    {
+      "id": "5",
+      "name": "数据库备份",
+      "description": "备份 MySQL 数据库到指定文件",
+      "type": "shell",
+      "content": "#!/bin/bash\nTIMESTAMP=$(date +%Y%m%d_%H%M%S)\nBACKUP_FILE=\"${backup_dir}/${database}_${TIMESTAMP}.sql\"\n\necho \"开始备份数据库: ${database}\"\necho \"备份文件: $BACKUP_FILE\"\n\nmysqldump -h ${host} -P ${port} -u ${username} -p${password} ${database} > $BACKUP_FILE\n\nif [ $? -eq 0 ]; then\n  echo \"✅ 备份成功！\"\n  echo \"文件大小: $(du -h $BACKUP_FILE | cut -f1)\"\nelse\n  echo \"❌ 备份失败！\"\n  exit 1\nfi",
+      "params": [
+        {
+          "name": "host",
+          "defaultValue": "localhost",
+          "description": "数据库主机"
+        },
+        {
+          "name": "port",
+          "defaultValue": "3306",
+          "description": "数据库端口"
+        },
+        {
+          "name": "username",
+          "defaultValue": "root",
+          "description": "数据库用户名"
+        },
+        {
+          "name": "password",
+          "defaultValue": "",
+          "description": "数据库密码"
+        },
+        {
+          "name": "database",
+          "defaultValue": "mydb",
+          "description": "数据库名称"
+        },
+        {
+          "name": "backup_dir",
+          "defaultValue": "/backup",
+          "description": "备份文件保存目录"
+        }
+      ],
+      "createdAt": "2024-01-11T11:30:00.000Z"
+    }
+  ]
+}
+
+
+
+
