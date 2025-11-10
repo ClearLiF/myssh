@@ -1260,11 +1260,24 @@ const handleStreamEnd = (data) => {
 
 // 打开文件管理器
 const openFileManager = async () => {
+  console.log('📁 SSHTerminalTab 打开文件管理器')
+  console.log('  - isConnected:', isConnected.value)
+  console.log('  - connectionId:', connectionId.value)
+  
   if (!isConnected.value) {
+    console.warn('⚠️ SSH 未连接')
     toast.value?.warning('请先连接 SSH 才能打开文件管理器', '连接提示')
     return
   }
+  
+  if (!connectionId.value) {
+    console.error('❌ connectionId 为空，但 isConnected 为 true，这是一个错误状态')
+    toast.value?.error('SSH 连接状态异常，请重新连接', '连接错误')
+    return
+  }
 
+  console.log('✅ 发送 open-sftp 事件，connectionId:', connectionId.value)
+  
   // 直接触发事件，让父组件创建新tab
   emit('open-sftp', {
     connectionId: connectionId.value

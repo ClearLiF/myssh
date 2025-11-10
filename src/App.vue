@@ -254,11 +254,10 @@ const handleOpenConnection = (connection) => {
   
   // 每次都创建新标签页，允许对同一主机打开多个连接
   const newTabName = `tab-${++tabIndex}`
-  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   
   openTabs.value.push({
     name: newTabName,
-    label: `${connection.name || connection.host} [${timestamp}]`,
+    label: `${connection.name || connection.host} #${tabIndex}`,
     connection: connection
   })
   activeTabName.value = newTabName
@@ -286,27 +285,39 @@ const handleTabRemove = (targetName) => {
 
 // 处理打开 SFTP 文件管理器
 const handleOpenSFTP = ({ connection, connectionId }) => {
+  console.log('🌟 App.vue 收到打开 SFTP 请求')
+  console.log('  - connection:', connection)
+  console.log('  - connectionId:', connectionId)
+  
+  if (!connectionId) {
+    console.error('❌ 警告：connectionId 为空，SFTP 标签页可能无法正常工作')
+    ElMessage.warning({
+      message: 'SSH 连接信息缺失，请确保 SSH 已连接',
+      duration: 5000
+    })
+  }
+  
   const newTabName = `sftp-${++tabIndex}`
-  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   
   openTabs.value.push({
     name: newTabName,
-    label: `📁 ${connection.name || connection.host} [${timestamp}]`,
+    label: `📁 ${connection.name || connection.host} #${tabIndex}`,
     connection: connection,
     connectionId: connectionId,
     type: 'sftp'  // 标记为 SFTP 标签页
   })
   activeTabName.value = newTabName
+  
+  console.log('✅ SFTP 标签页已创建:', newTabName)
 }
 
 // 处理打开进程监控
 const handleOpenProcessMonitor = ({ connection, connectionId }) => {
   const newTabName = `process-${++tabIndex}`
-  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
   
   openTabs.value.push({
     name: newTabName,
-    label: `📊 进程 - ${connection.name || connection.host}`,
+    label: `📊 进程 - ${connection.name || connection.host} #${tabIndex}`,
     connection: connection,
     connectionId: connectionId,
     type: 'process-monitor'  // 标记为进程监控标签页
@@ -320,7 +331,7 @@ const handleOpenNetworkMonitor = ({ connection, connectionId }) => {
   
   openTabs.value.push({
     name: newTabName,
-    label: `🌐 网络 - ${connection.name || connection.host}`,
+    label: `🌐 网络 - ${connection.name || connection.host} #${tabIndex}`,
     connection: connection,
     connectionId: connectionId,
     type: 'network-monitor'  // 标记为网络监控标签页
@@ -334,7 +345,7 @@ const handleOpenDockerManager = ({ connection, connectionId }) => {
   
   openTabs.value.push({
     name: newTabName,
-    label: `🐳 Docker - ${connection.name || connection.host}`,
+    label: `🐳 Docker - ${connection.name || connection.host} #${tabIndex}`,
     connection: connection,
     connectionId: connectionId,
     type: 'docker-manager'  // 标记为 Docker 管理标签页
@@ -348,7 +359,7 @@ const handleOpenSystemctlManager = ({ connection, connectionId }) => {
   
   openTabs.value.push({
     name: newTabName,
-    label: `⚙️ Systemctl - ${connection.name || connection.host}`,
+    label: `⚙️ Systemctl - ${connection.name || connection.host} #${tabIndex}`,
     connection: connection,
     connectionId: connectionId,
     type: 'systemctl-manager'  // 标记为 Systemctl 管理标签页

@@ -9,7 +9,6 @@ let mainWindow
 let sshConnections = new Map()
 let activeStreams = new Map() // 保存活跃的流式连接
 let activeTunnels = new Map() // 保存活跃的SSH隧道 key: connectionId, value: Array of {tunnel, server}
-let connectionHealthChecks = new Map() // 保存连接健康检查定时器
 
 async function createWindow() {
   console.log('开始创建窗口...')
@@ -166,19 +165,6 @@ async function setupTunnel(ssh, connectionId, tunnel) {
       })
 
       server.on('error', (err) => {
-        console.error(`❌ 本地转发监听失败: ${listenHost}:${listenPort} -> ${targetHost}:${targetPort}`, err)
-        
-        // 即使失败也要保存隧道配置，标记为失败状态
-        if (!activeTunnels.has(connectionId)) {
-          activeTunnels.set(connectionId, [])
-        }
-        activeTunnels.get(connectionId).push({
-          tunnel: tunnel,
-          server: null, // 服务器启动失败
-          status: 'failed',
-          error: err.message
-        })
-        
         reject(new Error(`端口 ${listenPort} 监听失败: ${err.message}`))
       })
 
@@ -191,8 +177,7 @@ async function setupTunnel(ssh, connectionId, tunnel) {
         }
         activeTunnels.get(connectionId).push({
           tunnel: tunnel,
-          server: server,
-          status: 'active'
+          server: server
         })
 
         resolve()
@@ -204,19 +189,6 @@ async function setupTunnel(ssh, connectionId, tunnel) {
       
       ssh.connection.forwardIn(listenHost, listenPort, (err) => {
         if (err) {
-          console.error(`❌ 远程转发失败: 服务器${listenHost}:${listenPort} -> ${targetHost}:${targetPort}`, err)
-          
-          // 即使失败也要保存隧道配置，标记为失败状态
-          if (!activeTunnels.has(connectionId)) {
-            activeTunnels.set(connectionId, [])
-          }
-          activeTunnels.get(connectionId).push({
-            tunnel: tunnel,
-            server: null,
-            status: 'failed',
-            error: err.message
-          })
-          
           reject(new Error(`远程转发失败: ${err.message}`))
           return
         }
@@ -249,8 +221,7 @@ async function setupTunnel(ssh, connectionId, tunnel) {
         }
         activeTunnels.get(connectionId).push({
           tunnel: tunnel,
-          server: null, // 远程转发没有本地服务器
-          status: 'active'
+          server: null // 远程转发没有本地服务器
         })
         
         resolve()
@@ -265,73 +236,6 @@ async function setupTunnel(ssh, connectionId, tunnel) {
       reject(new Error(`未知的隧道类型: ${type}`))
     }
   })
-}
-
-// 启动连接健康监控
-function startConnectionHealthCheck(connectionId, ssh) {
-  // 清理旧的健康检查
-  if (connectionHealthChecks.has(connectionId)) {
-    clearInterval(connectionHealthChecks.get(connectionId))
-  }
-  
-  console.log(`🏥 启动连接健康监控: ${connectionId}`)
-  
-  const healthCheckInterval = setInterval(async () => {
-    try {
-      if (!sshConnections.has(connectionId)) {
-        console.log(`连接 ${connectionId} 已不存在，停止健康检查`)
-        clearInterval(healthCheckInterval)
-        connectionHealthChecks.delete(connectionId)
-        return
-      }
-      
-      const currentSsh = sshConnections.get(connectionId)
-      if (!currentSsh || !currentSsh.connection || !currentSsh.connection.sock) {
-        console.warn(`连接 ${connectionId} 状态异常，停止健康检查`)
-        clearInterval(healthCheckInterval)
-        connectionHealthChecks.delete(connectionId)
-        return
-      }
-      
-      // 执行简单的健康检查
-      const healthResult = await currentSsh.execCommand('echo "$(date +%s)"', {
-        execOptions: { timeout: 8000 }
-      })
-      
-      if (healthResult.code === 0 && healthResult.stdout.trim()) {
-        console.log(`💚 连接 ${connectionId} 健康检查通过`)
-      } else {
-        console.warn(`💔 连接 ${connectionId} 健康检查失败`)
-        // 通知前端连接可能有问题
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('ssh:connection-warning', {
-            connectionId,
-            message: '连接可能不稳定'
-          })
-        }
-      }
-    } catch (error) {
-      console.error(`💔 连接 ${connectionId} 健康检查异常:`, error.message)
-      // 连接可能已断开
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:connection-error', {
-          connectionId,
-          error: '连接健康检查失败: ' + error.message
-        })
-      }
-    }
-  }, 30000) // 每30秒检查一次
-  
-  connectionHealthChecks.set(connectionId, healthCheckInterval)
-}
-
-// 停止连接健康监控
-function stopConnectionHealthCheck(connectionId) {
-  if (connectionHealthChecks.has(connectionId)) {
-    console.log(`🏥 停止连接健康监控: ${connectionId}`)
-    clearInterval(connectionHealthChecks.get(connectionId))
-    connectionHealthChecks.delete(connectionId)
-  }
 }
 
 // 清理连接的所有隧道
@@ -377,11 +281,8 @@ ipcMain.handle('ssh:connect', async (event, config) => {
       host: String(config.host),
       port: Number(config.port),
       username: String(config.username),
-      readyTimeout: 60000, // 增加连接超时时间
-      keepaliveInterval: 2000, // 进一步减少keepalive间隔，每2秒一次
-      keepaliveCountMax: 20, // 增加keepalive重试次数
-      // 添加SSH特定选项
-      tryKeyboard: true,
+      readyTimeout: 30000,
+      keepaliveInterval: 10000,
       // 添加调试选项
       debug: (msg) => {
         console.log('SSH Debug:', msg)
@@ -457,43 +358,7 @@ ipcMain.handle('ssh:connect', async (event, config) => {
     await ssh.connect(connectionConfig)
     
     const connectionId = Date.now().toString()
-    
-    // 添加连接状态监控
-    ssh.connection.on('error', (error) => {
-      console.error(`SSH连接 ${connectionId} 发生错误:`, error)
-      // 通知前端连接异常
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:connection-error', {
-          connectionId,
-          error: error.message
-        })
-      }
-    })
-    
-    ssh.connection.on('close', () => {
-      console.warn(`SSH连接 ${connectionId} 已关闭`)
-      // 从连接池中移除
-      sshConnections.delete(connectionId)
-      // 通知前端连接关闭
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:connection-closed', {
-          connectionId
-        })
-      }
-    })
-    
-    ssh.connection.on('end', () => {
-      console.warn(`SSH连接 ${connectionId} 已结束`)
-    })
-    
-    // 保存连接配置以便重连
-    ssh.originalConfig = config
-    ssh.connectionId = connectionId
-    
     sshConnections.set(connectionId, ssh)
-    
-    // 启动连接健康监控
-    startConnectionHealthCheck(connectionId, ssh)
     
     console.log('SSH 连接成功，连接ID:', connectionId)
     
@@ -579,9 +444,6 @@ ipcMain.handle('ssh:disconnect', async (event, connectionId) => {
     
     const ssh = sshConnections.get(connId)
     if (ssh) {
-      // 停止健康监控
-      stopConnectionHealthCheck(connId)
-      
       // 先清理所有隧道
       cleanupTunnels(connId)
       
@@ -604,123 +466,6 @@ ipcMain.handle('ssh:disconnect', async (event, connectionId) => {
   }
 })
 
-// IPC 处理器 - SSH 自动重连
-ipcMain.handle('ssh:reconnect', async (event, connectionId) => {
-  try {
-    const connId = String(connectionId)
-    console.log(`🔄 尝试重连: ${connId}`)
-    
-    const oldSsh = sshConnections.get(connId)
-    if (!oldSsh || !oldSsh.originalConfig) {
-      throw new Error('无法找到原始连接配置')
-    }
-    
-    const config = oldSsh.originalConfig
-    
-    // 先清理旧连接
-    try {
-      cleanupTunnels(connId)
-      oldSsh.dispose()
-    } catch (error) {
-      console.warn('清理旧连接时出错:', error.message)
-    }
-    
-    // 创建新连接
-    const ssh = new NodeSSH()
-    
-    const connectionConfig = {
-      host: String(config.host),
-      port: Number(config.port),
-      username: String(config.username),
-      readyTimeout: 60000,
-      keepaliveInterval: 2000, // 与主连接保持一致
-      keepaliveCountMax: 20, // 与主连接保持一致
-      // 添加SSH特定选项
-      tryKeyboard: true,
-      debug: (msg) => {
-        console.log('SSH Debug (重连):', msg)
-      }
-    }
-
-    if (config.authType === 'password' && config.password) {
-      connectionConfig.password = String(config.password)
-    } else if (config.authType === 'privateKey' && config.privateKeyContent) {
-      connectionConfig.privateKey = String(config.privateKeyContent).trim()
-      if (config.privateKeyPassphrase) {
-        connectionConfig.passphrase = String(config.privateKeyPassphrase)
-      }
-    }
-
-    await ssh.connect(connectionConfig)
-    
-    // 连接成功后进行健康检查
-    console.log(`🔍 验证重连后的连接健康状态: ${connId}`)
-    try {
-      const healthCheck = await ssh.execCommand('echo "connection_test"', {
-        execOptions: { timeout: 10000 }
-      })
-      
-      if (healthCheck.code !== 0 || !healthCheck.stdout.includes('connection_test')) {
-        throw new Error('连接健康检查失败')
-      }
-      
-      console.log(`✅ 连接健康检查通过: ${connId}`)
-    } catch (healthError) {
-      console.error(`❌ 连接健康检查失败: ${connId}`, healthError)
-      ssh.dispose()
-      throw new Error(`重连后连接不稳定: ${healthError.message}`)
-    }
-    
-    // 等待连接稳定（增加等待时间）
-    await new Promise(resolve => setTimeout(resolve, 4000))
-    
-    // 添加连接状态监控
-    ssh.connection.on('error', (error) => {
-      console.error(`SSH重连 ${connId} 发生错误:`, error)
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:connection-error', {
-          connectionId: connId,
-          error: error.message
-        })
-      }
-    })
-    
-    ssh.connection.on('close', () => {
-      console.warn(`SSH重连 ${connId} 已关闭`)
-      sshConnections.delete(connId)
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ssh:connection-closed', {
-          connectionId: connId
-        })
-      }
-    })
-    
-    // 保存连接配置
-    ssh.originalConfig = config
-    ssh.connectionId = connId
-    
-    // 使用原来的connectionId
-    sshConnections.set(connId, ssh)
-    
-    // 启动连接健康监控
-    startConnectionHealthCheck(connId, ssh)
-    
-    console.log(`✅ SSH重连并验证成功: ${connId}`)
-    
-    return { 
-      success: true, 
-      connectionId: connId,
-      message: '重连成功'
-    }
-  } catch (error) {
-    console.error('SSH重连失败:', error)
-    return { 
-      success: false, 
-      message: error.message 
-    }
-  }
-})
-
 // IPC 处理器 - 执行 SSH 命令（支持实时流式输出）
 ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
   try {
@@ -730,15 +475,6 @@ ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
     if (!ssh) {
       throw new Error('SSH 连接不存在')
     }
-    
-    // 检查SSH连接状态
-    if (!ssh.connection || !ssh.connection.sock || ssh.connection.sock.readyState !== 'open') {
-      console.warn('SSH连接状态异常')
-      throw new Error('SSH连接已断开，请重新连接')
-    }
-    
-    // 不进行额外的健康检查，直接执行命令
-    // 如果连接有问题，命令执行会自然失败并触发重试机制
     
     // 检查是否是交互式命令（需要 PTY 支持）
     const interactiveCommands = ['vim', 'vi', 'nano', 'emacs', 'top', 'htop', 'less', 'more', 'man']
@@ -858,59 +594,14 @@ ipcMain.handle('ssh:execute', async (event, { connectionId, command }) => {
         })
       })
     } else {
-      // 普通命令，使用带重试机制的方式
-      let result = null
-      let retryCount = 0
-      const maxRetries = 3
+      // 普通命令，使用原来的方式
+      const result = await ssh.execCommand(actualCommand)
       
-      while (retryCount < maxRetries) {
-        try {
-          console.log(`执行命令 (第${retryCount + 1}次尝试): ${actualCommand}`)
-          
-          result = await ssh.execCommand(actualCommand, {
-            execOptions: {
-              // 增加超时时间
-              timeout: 30000
-            }
-          })
-          
-          console.log('命令执行结果:', { 
-            stdout: result.stdout || '(空)', 
-            stderr: result.stderr || '(空)', 
-            code: result.code 
-          })
-          
-          // 如果命令成功执行（退出码为0）或者有输出，认为执行成功
-          if (result.code === 0 || result.stdout || result.stderr) {
-            break
-          } else {
-            throw new Error('命令执行无输出且退出码异常')
-          }
-        } catch (error) {
-          retryCount++
-          console.warn(`命令执行失败 (第${retryCount}次尝试):`, error.message)
-          
-          // 检查是否是通道相关错误
-          if (error.message && error.message.includes('Channel open failure')) {
-            console.log('检测到通道打开失败，等待后重试...')
-            await new Promise(resolve => setTimeout(resolve, 2000))
-            
-            // 检查连接状态
-            if (!ssh.connection || !ssh.connection.sock || ssh.connection.sock.readyState !== 'open') {
-              throw new Error('SSH连接已断开，无法重试')
-            }
-          } else if (retryCount >= maxRetries) {
-            throw error
-          } else {
-            // 其他错误也等待一下再重试
-            await new Promise(resolve => setTimeout(resolve, 1000))
-          }
-        }
-      }
-      
-      if (!result) {
-        throw new Error(`命令执行失败，已重试${maxRetries}次`)
-      }
+      console.log('命令执行结果:', { 
+        stdout: result.stdout || '(空)', 
+        stderr: result.stderr || '(空)', 
+        code: result.code 
+      })
       
       return {
         success: true,
@@ -1024,127 +715,21 @@ ipcMain.handle('sftp:list', async (event, { connectionId, path }) => {
   }
 })
 
-// 存储传输任务，用于取消功能
-const transferTasks = new Map()
-
 // IPC 处理器 - 文件上传
-ipcMain.handle('sftp:upload', async (event, { connectionId, localPath, remotePath, taskId }) => {
+ipcMain.handle('sftp:upload', async (event, { connectionId, localPath, remotePath }) => {
   try {
     const ssh = sshConnections.get(connectionId)
     if (!ssh) {
       throw new Error('SSH 连接不存在')
     }
     
-    const fs = require('fs')
-    const path = require('path')
-    
-    // 获取文件大小
-    const stats = fs.statSync(localPath)
-    const totalSize = stats.size
-    let transferredSize = 0
-    let lastProgressTime = Date.now()
-    let lastTransferredSize = 0
-    
-    // 创建取消标志
-    const cancelFlag = { cancelled: false }
-    if (taskId) {
-      transferTasks.set(taskId, cancelFlag)
-    }
-    
-    // 检查远程目录是否存在，如果不存在则创建
-    const remoteDir = path.dirname(remotePath)
-    if (remoteDir !== '.' && remoteDir !== '/') {
-      await ssh.execCommand(`mkdir -p "${remoteDir}"`)
-    }
-    
-    // 使用带进度回调和重试机制的上传
-    let uploadSuccess = false
-    let uploadRetries = 0
-    const maxUploadRetries = 3
-    
-    while (!uploadSuccess && uploadRetries < maxUploadRetries) {
-      try {
-        uploadRetries++
-        console.log(`开始上传文件 (第${uploadRetries}次尝试): ${path.basename(localPath)} (${(totalSize / 1024 / 1024).toFixed(2)} MB)`)
-        
-        // 不检查连接状态，直接尝试上传，让node-ssh自己处理连接问题
-        // 如果连接有问题，putFile会抛出错误，我们在catch中处理
-        
-        // 简单直接上传，不添加额外配置
-        await ssh.putFile(localPath, remotePath, null, {
-          step: (totalTransferred, chunk, total) => {
-            // 检查是否被取消
-            if (cancelFlag.cancelled) {
-              throw new Error('传输已取消')
-            }
-            
-            transferredSize = totalTransferred
-            const now = Date.now()
-            const timeDiff = (now - lastProgressTime) / 1000 // 秒
-            
-            // 计算传输速度（每0.5秒更新一次）
-            let speed = 0
-            if (timeDiff >= 0.5) {
-              const sizeDiff = transferredSize - lastTransferredSize
-              speed = sizeDiff / timeDiff // 字节/秒
-              lastProgressTime = now
-              lastTransferredSize = transferredSize
-            }
-            
-            // 发送进度事件
-            event.sender.send('sftp:progress', {
-              taskId,
-              type: 'upload',
-              transferred: totalTransferred,
-              total: total,
-              percentage: Math.round((totalTransferred / total) * 100),
-              speed: speed,
-              filename: path.basename(localPath)
-            })
-          }
-        })
-        
-        uploadSuccess = true
-        console.log(`✅ 文件上传成功: ${path.basename(localPath)}`)
-        
-      } catch (uploadError) {
-        console.error(`上传失败 (第${uploadRetries}次尝试):`, uploadError.message)
-        
-        if (uploadRetries >= maxUploadRetries) {
-          throw new Error(`文件上传失败 (已重试${maxUploadRetries}次): ${uploadError.message}`)
-        }
-        
-        // 检查是否是连接问题
-        if (uploadError.message.includes('连接') || uploadError.message.includes('Connection') || uploadError.message.includes('ECONNRESET')) {
-          console.log('检测到连接问题，等待后重试...')
-          await new Promise(resolve => setTimeout(resolve, 3000))
-          
-          // 重置进度
-          transferredSize = 0
-          lastProgressTime = Date.now()
-          lastTransferredSize = 0
-        } else {
-          // 其他错误，等待较短时间后重试
-          await new Promise(resolve => setTimeout(resolve, 1000))
-        }
-      }
-    }
-    
-    // 清理任务
-    if (taskId) {
-      transferTasks.delete(taskId)
-    }
+    await ssh.putFile(localPath, remotePath)
     
     return {
       success: true,
       message: '文件上传成功'
     }
   } catch (error) {
-    // 清理任务
-    if (taskId) {
-      transferTasks.delete(taskId)
-    }
-    
     return {
       success: false,
       message: error.message
@@ -1181,115 +766,18 @@ ipcMain.handle('sftp:rename', async (event, { connectionId, oldPath, newPath }) 
 })
 
 // IPC 处理器 - 文件下载
-ipcMain.handle('sftp:download', async (event, { connectionId, remotePath, localPath, taskId }) => {
+ipcMain.handle('sftp:download', async (event, { connectionId, remotePath, localPath }) => {
   try {
     const ssh = sshConnections.get(connectionId)
     if (!ssh) {
       throw new Error('SSH 连接不存在')
     }
     
-    const fs = require('fs')
-    const path = require('path')
-    
-    // 获取远程文件大小
-    let totalSize = 0
-    try {
-      const statResult = await ssh.execCommand(`stat -c%s "${remotePath}"`)
-      if (statResult.code === 0) {
-        totalSize = parseInt(statResult.stdout.trim()) || 0
-      }
-    } catch (error) {
-      console.warn('无法获取远程文件大小:', error.message)
-    }
-    
-    let transferredSize = 0
-    let lastProgressTime = Date.now()
-    let lastTransferredSize = 0
-    
-    // 创建取消标志
-    const cancelFlag = { cancelled: false }
-    if (taskId) {
-      transferTasks.set(taskId, cancelFlag)
-    }
-    
-    // 确保本地目录存在
-    const localDir = path.dirname(localPath)
-    if (!fs.existsSync(localDir)) {
-      fs.mkdirSync(localDir, { recursive: true })
-    }
-    
-    // 使用带进度回调的下载
-    await ssh.getFile(localPath, remotePath, null, {
-      step: (totalTransferred, chunk, total) => {
-        // 检查是否被取消
-        if (cancelFlag.cancelled) {
-          throw new Error('传输已取消')
-        }
-        
-        transferredSize = totalTransferred
-        const now = Date.now()
-        const timeDiff = (now - lastProgressTime) / 1000 // 秒
-        
-        // 计算传输速度（每0.5秒更新一次）
-        let speed = 0
-        if (timeDiff >= 0.5) {
-          const sizeDiff = transferredSize - lastTransferredSize
-          speed = sizeDiff / timeDiff // 字节/秒
-          lastProgressTime = now
-          lastTransferredSize = transferredSize
-        }
-        
-        // 发送进度事件
-        event.sender.send('sftp:progress', {
-          taskId,
-          type: 'download',
-          transferred: totalTransferred,
-          total: total || totalSize,
-          percentage: Math.round((totalTransferred / (total || totalSize || 1)) * 100),
-          speed: speed,
-          filename: path.basename(remotePath)
-        })
-      }
-    })
-    
-    // 清理任务
-    if (taskId) {
-      transferTasks.delete(taskId)
-    }
+    await ssh.getFile(localPath, remotePath)
     
     return {
       success: true,
       message: '文件下载成功'
-    }
-  } catch (error) {
-    // 清理任务
-    if (taskId) {
-      transferTasks.delete(taskId)
-    }
-    
-    return {
-      success: false,
-      message: error.message
-    }
-  }
-})
-
-// IPC 处理器 - 取消传输
-ipcMain.handle('sftp:cancel', async (event, { taskId }) => {
-  try {
-    const cancelFlag = transferTasks.get(taskId)
-    if (cancelFlag) {
-      cancelFlag.cancelled = true
-      transferTasks.delete(taskId)
-      return {
-        success: true,
-        message: '传输已取消'
-      }
-    } else {
-      return {
-        success: false,
-        message: '找不到对应的传输任务'
-      }
     }
   } catch (error) {
     return {
@@ -3811,28 +3299,12 @@ ipcMain.handle('ssh:createDockerContainer', async (event, connectionId, containe
 // ==================== Systemctl 服务管理 ====================
 
 // IPC 处理器 - 获取 systemctl 服务列表
-ipcMain.handle('ssh:getSystemctlServices', async (event, connectionId, options = {}) => {
+ipcMain.handle('ssh:getSystemctlServices', async (event, connectionId) => {
   try {
     const ssh = sshConnections.get(String(connectionId))
     if (!ssh) {
       throw new Error('SSH 连接不存在')
     }
-
-    const { 
-      limit = 100, 
-      offset = 0, 
-      onlyCommon = true,
-      includeEnabled = false 
-    } = options
-
-    // 常用服务列表（用于快速过滤）
-    const commonServices = [
-      'nginx', 'apache2', 'httpd', 'mysql', 'mariadb', 'postgresql', 'redis',
-      'mongodb', 'docker', 'ssh', 'sshd', 'cron', 'systemd-timesyncd',
-      'firewalld', 'ufw', 'fail2ban', 'postfix', 'dovecot', 'vsftpd',
-      'tomcat', 'jenkins', 'gitlab', 'elasticsearch', 'rabbitmq', 'kafka',
-      'zookeeper', 'consul', 'etcd', 'prometheus', 'grafana', 'node_exporter'
-    ]
 
     // 使用 systemctl list-units 获取服务列表
     const result = await ssh.execCommand('systemctl list-units --type=service,timer,socket --all --no-pager --plain --no-legend')
@@ -3840,16 +3312,13 @@ ipcMain.handle('ssh:getSystemctlServices', async (event, connectionId, options =
     if (!result.stdout) {
       return {
         success: true,
-        services: [],
-        total: 0,
-        hasMore: false
+        services: []
       }
     }
 
-    const allServices = []
+    const services = []
     const lines = result.stdout.trim().split('\n')
     
-    // 解析所有服务
     for (const line of lines) {
       if (!line.trim()) continue
       
@@ -3866,110 +3335,31 @@ ipcMain.handle('ssh:getSystemctlServices', async (event, connectionId, options =
       // 获取服务名（去掉后缀）
       const name = unit.replace(/\.(service|timer|socket)$/, '')
       
-      allServices.push({
+      // 检查是否启用了开机自启
+      const enabledResult = await ssh.execCommand(`systemctl is-enabled ${unit} 2>/dev/null || echo "disabled"`)
+      const enabled = enabledResult.stdout.trim()
+      
+      services.push({
         name,
         unit,
         description,
         activeState,
         subState,
-        enabled: 'unknown', // 默认未知，按需查询
+        enabled,
         loadState
       })
     }
 
-    // 如果只显示常用服务，进行过滤
-    let filteredServices = allServices
-    if (onlyCommon) {
-      filteredServices = allServices.filter(service => {
-        const serviceName = service.name.toLowerCase()
-        return commonServices.some(common => serviceName.includes(common.toLowerCase()))
-      })
-    }
-
-    // 分页处理
-    const total = filteredServices.length
-    const paginatedServices = filteredServices.slice(offset, offset + limit)
-    
-    // 如果需要获取启用状态，批量查询（仅对当前页的服务）
-    if (includeEnabled && paginatedServices.length > 0) {
-      const units = paginatedServices.map(s => s.unit).join(' ')
-      const enabledResult = await ssh.execCommand(`
-        for unit in ${units}; do
-          status=$(systemctl is-enabled "$unit" 2>/dev/null || echo "disabled")
-          echo "$unit:$status"
-        done
-      `)
-      
-      if (enabledResult.stdout) {
-        const enabledMap = new Map()
-        enabledResult.stdout.trim().split('\n').forEach(line => {
-          const [unit, status] = line.split(':')
-          if (unit && status) {
-            enabledMap.set(unit, status.trim())
-          }
-        })
-        
-        // 更新启用状态
-        paginatedServices.forEach(service => {
-          service.enabled = enabledMap.get(service.unit) || 'disabled'
-        })
-      }
-    }
-
     return {
       success: true,
-      services: paginatedServices,
-      total,
-      hasMore: offset + limit < total,
-      offset,
-      limit
+      services
     }
   } catch (error) {
     console.error('获取服务列表失败:', error)
     return {
       success: false,
       message: error.message,
-      services: [],
-      total: 0,
-      hasMore: false
-    }
-  }
-})
-
-// IPC 处理器 - 获取所有服务名称（用于搜索建议）
-ipcMain.handle('ssh:getAllServiceNames', async (event, connectionId) => {
-  try {
-    const ssh = sshConnections.get(String(connectionId))
-    if (!ssh) {
-      throw new Error('SSH 连接不存在')
-    }
-
-    // 只获取服务名称，不获取详细信息
-    const result = await ssh.execCommand('systemctl list-units --type=service --all --no-pager --plain --no-legend | awk \'{print $1}\' | head -200')
-    
-    if (!result.stdout) {
-      return {
-        success: true,
-        serviceNames: []
-      }
-    }
-
-    const serviceNames = result.stdout.trim().split('\n')
-      .filter(line => line.trim())
-      .map(unit => unit.replace(/\.(service|timer|socket)$/, ''))
-      .filter(name => name && !name.includes('@'))
-      .slice(0, 100) // 限制返回数量
-
-    return {
-      success: true,
-      serviceNames
-    }
-  } catch (error) {
-    console.error('获取服务名称失败:', error)
-    return {
-      success: false,
-      message: error.message,
-      serviceNames: []
+      services: []
     }
   }
 })
@@ -4578,15 +3968,13 @@ ipcMain.handle('ssh:getTunnels', async (event, connectionId) => {
     }
     
     // 返回隧道信息（不包含server对象，避免序列化问题）
-    const tunnelList = tunnels.map(({ tunnel, status, error }) => ({
+    const tunnelList = tunnels.map(({ tunnel }) => ({
       name: tunnel.name,
       type: tunnel.type,
       listenHost: tunnel.listenHost,
       listenPort: tunnel.listenPort,
       targetHost: tunnel.targetHost,
-      targetPort: tunnel.targetPort,
-      status: status || 'active', // 默认为 active，失败的会有 failed 状态
-      error: error || null // 错误信息
+      targetPort: tunnel.targetPort
     }))
     
     console.log(`获取连接 ${connectionId} 的端口转发列表:`, tunnelList)
@@ -4667,26 +4055,15 @@ ipcMain.handle('ssh:startTunnel', async (event, { connectionId, tunnel }) => {
     
     // 检查隧道是否已经存在
     const existingTunnels = activeTunnels.get(connId) || []
-    const existsIndex = existingTunnels.findIndex(t => 
+    const exists = existingTunnels.find(t => 
       t.tunnel.listenPort === tunnel.listenPort && 
       t.tunnel.listenHost === tunnel.listenHost
     )
     
-    if (existsIndex >= 0) {
-      const existing = existingTunnels[existsIndex]
-      
-      // 如果隧道处于活动状态，不允许重复启动
-      if (existing.status === 'active' && existing.server) {
-        return {
-          success: false,
-          message: '该端口转发已经在运行中'
-        }
-      }
-      
-      // 如果隧道处于失败状态，先移除旧的记录
-      if (existing.status === 'failed') {
-        console.log(`🔄 重新启动失败的隧道: ${tunnel.name}`)
-        existingTunnels.splice(existsIndex, 1)
+    if (exists) {
+      return {
+        success: false,
+        message: '该端口转发已经在运行中'
       }
     }
     

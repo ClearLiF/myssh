@@ -1499,6 +1499,8 @@ const uploadFoldersCompressed = async (folders) => {
   for (let i = 0; i < folders.length; i++) {
     const folder = folders[i]
     let taskId = null
+    let tempDir = null
+    let zipPath = null
     
     try {
       // 检查是否是 macOS 应用程序包
@@ -1602,7 +1604,7 @@ const uploadFoldersCompressed = async (folders) => {
         throw new Error('获取临时目录失败')
       }
       
-      const tempDir = `${tempPathResult.path}/${folder.name}_${Date.now()}`
+      tempDir = `${tempPathResult.path}/${folder.name}_${Date.now()}`
       
       // 保存文件到临时目录（使用文件流，避免内存溢出）
       const filesData = []
@@ -1649,6 +1651,9 @@ const uploadFoldersCompressed = async (folders) => {
         throw new Error(zipResult.message || '压缩失败')
       }
       
+      // 保存压缩文件路径以便后续清理
+      zipPath = zipResult.zipPath
+      
       console.log(`✅ 压缩完成: ${folder.name}`)
       transferManagerRef.value.updateTask(taskId, {
         percentage: 50,
@@ -1658,13 +1663,45 @@ const uploadFoldersCompressed = async (folders) => {
 
       // 3. 获取压缩文件的实际大小并更新任务
       let compressedSize = 0
-      try {
-        if (window.electronAPI && window.electronAPI.getFileStats) {
-          const compressedStats = await window.electronAPI.getFileStats(zipResult.zipPath)
-          compressedSize = compressedStats ? compressedStats.size : 0
+      let getStatsRetryCount = 0
+      const getStatsMaxRetries = 3
+      
+      // 等待一段时间确保文件完全写入
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      while (getStatsRetryCount < getStatsMaxRetries && compressedSize === 0) {
+        try {
+          if (window.electronAPI && window.electronAPI.getFileStats) {
+            console.log(`尝试获取压缩文件大小 (第${getStatsRetryCount + 1}次): ${zipResult.zipPath}`)
+            const compressedStats = await window.electronAPI.getFileStats(zipResult.zipPath)
+            console.log('压缩文件状态:', compressedStats)
+            
+            if (compressedStats && compressedStats.success) {
+              compressedSize = compressedStats.size || 0
+              console.log(`✅ 获取到压缩文件大小: ${(compressedSize / 1024 / 1024).toFixed(2)} MB`)
+            } else {
+              console.warn(`获取压缩文件大小失败 (第${getStatsRetryCount + 1}次):`, compressedStats)
+            }
+          }
+        } catch (error) {
+          console.warn(`获取压缩文件大小异常 (第${getStatsRetryCount + 1}次):`, error)
         }
-      } catch (error) {
-        console.warn('无法获取压缩文件大小:', error)
+        
+        if (compressedSize === 0) {
+          getStatsRetryCount++
+          if (getStatsRetryCount < getStatsMaxRetries) {
+            // 等待后重试
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        } else {
+          break
+        }
+      }
+      
+      // 如果还是获取不到大小，使用原始文件总大小作为估算
+      if (compressedSize === 0) {
+        console.warn('⚠️ 无法获取压缩文件大小，使用原始大小估算')
+        compressedSize = totalSize
       }
       
       // 更新任务的总大小为压缩文件的实际大小
@@ -1738,12 +1775,12 @@ const uploadFoldersCompressed = async (folders) => {
       // -xzf: x=解压, z=gzip压缩, f=文件
       // 添加 -v 参数显示详细信息，便于调试
       let extractResult = null
-      let retryCount = 0
-      const maxRetries = 3
+      let extractRetryCount = 0
+      const extractMaxRetries = 3
       
-      while (retryCount < maxRetries) {
+      while (extractRetryCount < extractMaxRetries) {
         try {
-          console.log(`尝试解压 (第${retryCount + 1}次): ${folder.name}.tar.gz`)
+          console.log(`尝试解压 (第${extractRetryCount + 1}次): ${folder.name}.tar.gz`)
           
           // 添加更详细的错误检查
           extractResult = await window.electronAPI.ssh.execute(
@@ -1770,10 +1807,10 @@ const uploadFoldersCompressed = async (folders) => {
             throw new Error(extractResult.message || '解压命令执行失败')
           }
         } catch (error) {
-          retryCount++
-          console.warn(`解压失败 (第${retryCount}次尝试):`, error.message)
+          extractRetryCount++
+          console.warn(`解压失败 (第${extractRetryCount}次尝试):`, error.message)
           
-          if (retryCount >= maxRetries) {
+          if (extractRetryCount >= extractMaxRetries) {
             // 尝试使用备用解压方法
             console.log('尝试使用备用解压方法...')
             try {
@@ -1791,7 +1828,7 @@ const uploadFoldersCompressed = async (folders) => {
               console.error('备用解压方法也失败:', fallbackError.message)
             }
             
-            throw new Error(`解压失败 (已重试${maxRetries}次): ${error.message}`)
+            throw new Error(`解压失败 (已重试${extractMaxRetries}次): ${error.message}`)
           }
           
           // 重试前等待一段时间
@@ -1809,21 +1846,63 @@ const uploadFoldersCompressed = async (folders) => {
       })
 
       // 6. 删除远程 tar.gz 文件
+      console.log(`🗑️ 开始删除远程压缩文件: ${remoteTarPath}`)
       try {
+        // 等待更长时间确保解压完全完成
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        console.log(`执行删除命令: rm -f "${remoteTarPath}"`)
+        
+        // 直接删除，不管文件是否存在（-f 参数会忽略不存在的文件）
         const deleteTarResult = await window.electronAPI.ssh.execute(
           props.connectionId,
-          `rm "${currentPath.value}/${folder.name}.tar.gz"`
+          `rm -f "${remoteTarPath}"`
         )
 
-        if (!deleteTarResult.success) {
-          console.warn('删除远程 tar.gz 文件失败:', deleteTarResult.message)
-          // 不抛出错误，因为解压已经成功，删除失败不影响主要功能
+        console.log('删除命令执行结果:', deleteTarResult)
+
+        if (deleteTarResult.success) {
+          console.log('✅ 删除命令执行成功')
+          
+          // 验证文件是否真的被删除了
+          const verifyResult = await window.electronAPI.ssh.execute(
+            props.connectionId,
+            `test -f "${remoteTarPath}" && echo "still_exists" || echo "deleted_confirmed"`
+          )
+          
+          console.log('验证删除结果:', verifyResult)
+          
+          if (verifyResult.success) {
+            const output = verifyResult.output ? verifyResult.output.trim() : ''
+            console.log('验证输出内容:', `"${output}"`)
+            
+            if (output.includes('deleted_confirmed')) {
+              console.log('✅ 远程 tar.gz 文件已确认删除')
+              toastRef.value?.success(`压缩文件 ${folder.name}.tar.gz 已清理`, '清理成功', 2000)
+            } else if (output.includes('still_exists')) {
+              console.error('❌ 文件删除失败，文件仍然存在')
+              toastRef.value?.warning(`压缩文件 ${folder.name}.tar.gz 删除失败，请手动删除`, '清理警告', 5000)
+              
+              // 尝试用 sudo 删除（如果有权限）
+              console.log('尝试使用更强的删除方式...')
+              const forcedDeleteResult = await window.electronAPI.ssh.execute(
+                props.connectionId,
+                `rm -rf "${remoteTarPath}"`
+              )
+              console.log('强制删除结果:', forcedDeleteResult)
+            } else {
+              console.warn('⚠️ 无法确认删除状态，输出为:', output)
+            }
+          } else {
+            console.warn('⚠️ 验证命令执行失败，假定已删除')
+          }
         } else {
-          console.log('✅ 远程 tar.gz 文件已删除')
+          console.error('❌ 删除命令执行失败:', deleteTarResult.message)
+          toastRef.value?.warning(`压缩文件 ${folder.name}.tar.gz 删除失败: ${deleteTarResult.message}`, '清理警告', 5000)
         }
       } catch (deleteError) {
-        console.warn('删除远程 tar.gz 文件时发生异常:', deleteError.message)
-        // 继续执行，不影响主流程
+        console.error('❌ 删除远程 tar.gz 文件时发生异常:', deleteError.message)
+        toastRef.value?.warning(`压缩文件清理失败: ${deleteError.message}`, '清理警告', 3000)
       }
 
       transferManagerRef.value.updateTask(taskId, {
@@ -1832,15 +1911,34 @@ const uploadFoldersCompressed = async (folders) => {
       })
 
       // 7. 删除本地临时目录和压缩文件
+      console.log('🧹 开始清理本地临时文件')
       try {
+        // 先删除压缩文件
         if (window.electronAPI.system.deleteFile) {
-          await window.electronAPI.system.deleteFile(zipResult.zipPath)
+          console.log('删除本地压缩文件:', zipResult.zipPath)
+          const deleteFileResult = await window.electronAPI.system.deleteFile(zipResult.zipPath)
+          if (deleteFileResult && deleteFileResult.success) {
+            console.log('✅ 本地压缩文件已删除')
+          } else {
+            console.warn('⚠️ 本地压缩文件删除失败:', deleteFileResult)
+          }
         }
+        
+        // 再删除临时文件夹
         if (window.electronAPI.system.deleteFolder) {
-          await window.electronAPI.system.deleteFolder(tempDir)
+          console.log('删除本地临时文件夹:', tempDir)
+          const deleteFolderResult = await window.electronAPI.system.deleteFolder(tempDir)
+          if (deleteFolderResult && deleteFolderResult.success) {
+            console.log('✅ 本地临时文件夹已删除')
+          } else {
+            console.warn('⚠️ 本地临时文件夹删除失败:', deleteFolderResult)
+          }
         }
+        
+        console.log('✅ 本地临时文件清理完成')
       } catch (cleanError) {
-        console.warn('清理临时文件失败:', cleanError)
+        console.error('❌ 清理本地临时文件失败:', cleanError)
+        // 不影响主流程，只记录错误
       }
 
       transferManagerRef.value.updateTask(taskId, {
@@ -1861,6 +1959,22 @@ const uploadFoldersCompressed = async (folders) => {
         })
       }
       console.error('压缩上传失败:', error)
+      
+      // 清理临时文件（即使失败也要清理）
+      console.log('⚠️ 上传失败，开始清理临时文件...')
+      try {
+        if (zipPath && window.electronAPI.system.deleteFile) {
+          console.log('清理临时压缩文件:', zipPath)
+          await window.electronAPI.system.deleteFile(zipPath)
+        }
+        if (tempDir && window.electronAPI.system.deleteFolder) {
+          console.log('清理临时文件夹:', tempDir)
+          await window.electronAPI.system.deleteFolder(tempDir)
+        }
+        console.log('✅ 临时文件清理完成')
+      } catch (cleanError) {
+        console.error('❌ 清理临时文件时出错:', cleanError)
+      }
       
       // 根据错误类型给出更友好的提示
       let errorMsg = error.message
@@ -2451,10 +2565,14 @@ const startFileWatcherPolling = (connectionId, localPath, remotePath, fileName) 
 }
 
 // 监听连接ID变化
-watch(() => props.connectionId, (newId) => {
+watch(() => props.connectionId, (newId, oldId) => {
+  console.log('🔍 SFTPManagerTab connectionId 变化:', { oldId, newId })
   if (newId) {
+    console.log('✅ connectionId 有效，开始加载文件')
     loadFiles()
     loadTreeRoot()
+  } else {
+    console.warn('⚠️ connectionId 为空，无法加载文件')
   }
 }, { immediate: true })
 
@@ -2466,10 +2584,19 @@ watch(currentPath, (newPath) => {
 })
 
 onMounted(() => {
+  console.log('🚀 SFTPManagerTab 组件已挂载')
+  console.log('📋 props.connection:', props.connection)
+  console.log('🔑 props.connectionId:', props.connectionId)
+  
   if (props.connectionId) {
+    console.log('✅ 有 connectionId，开始加载文件')
     loadFiles()
     loadTreeRoot()
+  } else {
+    console.warn('⚠️ 没有 connectionId，等待连接...')
+    toastRef.value?.warning('SSH 连接信息缺失，请先连接 SSH 后再打开文件管理器', '连接提示', 5000)
   }
+  
   // 加载上传模式设置
   loadFolderUploadMode()
   // 添加全局点击事件监听

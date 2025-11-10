@@ -1180,50 +1180,80 @@ onMounted(async () => {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+/* 顶部装饰线 */
 .hosts-list::before {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.3), transparent);
+  height: 2px;
+  background: linear-gradient(90deg, 
+    rgba(102, 126, 234, 0) 0%, 
+    rgba(102, 126, 234, 0.5) 20%,
+    rgba(102, 126, 234, 0.8) 50%,
+    rgba(102, 126, 234, 0.5) 80%,
+    rgba(102, 126, 234, 0) 100%
+  );
+  z-index: 1;
 }
 
+/* 头部样式 */
 .hosts-header {
-  padding: 10px 14px;
+  padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border-color-light);
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(118, 75, 162, 0.05) 100%);
+  background: linear-gradient(
+    135deg, 
+    rgba(102, 126, 234, 0.08) 0%, 
+    rgba(118, 75, 162, 0.08) 100%
+  );
   backdrop-filter: blur(10px);
-  min-height: 50px;
+  min-height: 60px;
   flex-shrink: 0;
+  position: relative;
+}
+
+.hosts-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(102, 126, 234, 0.3) 50%,
+    transparent
+  );
 }
 
 .header-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 12px;
+  gap: 12px;
+  font-weight: 700;
+  font-size: 14px;
   color: var(--text-primary);
-  letter-spacing: 0.5px;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  transition: color 0.3s ease;
+  transition: all 0.3s ease;
 }
 
 .header-title .el-icon {
-  font-size: 16px;
+  font-size: 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 2px 4px rgba(102, 126, 234, 0.3));
 }
 
 .header-buttons {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
   flex-shrink: 0;
   min-width: fit-content;
@@ -1234,73 +1264,160 @@ onMounted(async () => {
   position: relative;
   z-index: 11;
   pointer-events: auto;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .header-buttons .el-button.is-circle {
-  min-width: 32px;
-  min-height: 32px;
+  min-width: 36px;
+  min-height: 36px;
   padding: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+.header-buttons .el-button.is-circle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+/* 搜索框样式 */
 .search-box {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-color-light);
+  padding: 16px 20px;
   background: var(--bg-tertiary);
   transition: background-color 0.3s ease;
+  position: relative;
+}
+
+.search-box::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 20px;
+  right: 20px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border-color-light) 20%,
+    var(--border-color-light) 80%,
+    transparent
+  );
 }
 
 .search-box :deep(.el-input__wrapper) {
   background: var(--input-bg);
-  box-shadow: none;
-  transition: background-color 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-radius: 8px;
+  padding: 8px 12px;
+  transition: all 0.3s ease;
+}
+
+.search-box :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.search-box :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.25);
+  border-color: rgba(102, 126, 234, 0.5);
 }
 
 .search-box :deep(.el-input__inner) {
   color: var(--text-primary);
   transition: color 0.3s ease;
+  font-size: 13px;
 }
 
+/* 内容区域 */
 .hosts-content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
+  padding: 16px 20px;
+}
+
+.hosts-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hosts-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hosts-content::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.3);
+  border-radius: 3px;
+}
+
+.hosts-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(102, 126, 234, 0.5);
 }
 
 .empty-hosts {
-  padding: 40px 15px;
+  padding: 60px 20px;
   text-align: center;
 }
 
+/* 分组样式 */
 .host-group {
-  margin-bottom: 10px;
-  border-radius: 6px;
+  margin-bottom: 16px;
+  border-radius: 12px;
   overflow: hidden;
-  background: rgba(102, 126, 234, 0.05);
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.03) 0%,
+    rgba(118, 75, 162, 0.03) 100%
+  );
   border: 1px solid var(--border-color-light);
   position: relative;
-  transition: background-color 0.3s ease, border-color 0.3s ease;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.host-group:hover {
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.1);
 }
 
 .group-header {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
+  padding: 14px 16px;
   cursor: pointer;
-  background: rgba(102, 126, 234, 0.08);
-  border-bottom: 1px solid var(--border-color-light);
-  transition: background 0.3s;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.08) 0%,
+    rgba(118, 75, 162, 0.08) 100%
+  );
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.group-header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--border-color-light) 50%,
+    transparent
+  );
 }
 
 .group-header:hover {
-  background: rgba(102, 126, 234, 0.12);
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.12) 0%,
+    rgba(118, 75, 162, 0.12) 100%
+  );
 }
 
 .group-header .group-icon {
-  font-size: 16px;
-  margin-right: 8px;
+  font-size: 18px;
+  margin-right: 12px;
   color: var(--text-secondary);
-  transition: transform 0.3s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .group-header .group-icon.collapsed {
@@ -1308,42 +1425,46 @@ onMounted(async () => {
 }
 
 .group-name {
-  font-size: 12px;
-  font-weight: 600;
+  flex: 1;
+  font-size: 13px;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-right: 8px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  letter-spacing: 0.2px;
+  letter-spacing: 0.5px;
   transition: color 0.3s;
 }
 
 .group-count {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-secondary);
+  background: rgba(102, 126, 234, 0.15);
+  padding: 4px 10px;
+  border-radius: 12px;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-weight: 600;
+  min-width: 32px;
+  text-align: center;
 }
 
 .group-hosts {
-  padding: 0 12px 10px;
-  transition: max-height 0.3s ease-in-out;
+  padding: 12px 16px 16px;
+  transition: all 0.3s ease-in-out;
   overflow: hidden;
 }
 
+/* 主机项样式 */
 .host-item {
   display: flex;
   align-items: center;
-  padding: 10px 12px;
-  margin-bottom: 6px;
-  border-radius: 6px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  background: rgba(102, 126, 234, 0.05);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color-light);
   position: relative;
   overflow: hidden;
-  animation: slideInRight 0.3s ease-out;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
 .host-item::before {
@@ -1351,75 +1472,106 @@ onMounted(async () => {
   position: absolute;
   top: 0;
   left: 0;
-  width: 3px;
+  width: 4px;
   height: 100%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(180deg, #667eea 0%, #764ba2 100%);
   opacity: 0;
   transition: opacity 0.3s;
 }
 
-.host-item:hover {
-  background: rgba(102, 126, 234, 0.12);
-  border-color: rgba(102, 126, 234, 0.3);
-  transform: translateX(4px) scale(1.01);
-  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
+.host-item::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.05) 0%,
+    rgba(118, 75, 162, 0.05) 100%
+  );
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
 }
 
-.host-item:hover::before {
+.host-item:hover {
+  border-color: rgba(102, 126, 234, 0.4);
+  transform: translateX(6px) scale(1.02);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.2);
+}
+
+.host-item:hover::before,
+.host-item:hover::after {
   opacity: 1;
 }
 
 .host-item:active {
-  transform: translateX(2px) scale(0.99);
+  transform: translateX(4px) scale(1.01);
 }
 
 .host-icon {
   flex-shrink: 0;
-  margin-right: 10px;
-  width: 30px;
-  height: 30px;
+  margin-right: 14px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
-  background: rgba(102, 126, 234, 0.1);
-  transition: all 0.3s;
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.12) 0%,
+    rgba(118, 75, 162, 0.12) 100%
+  );
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 1;
 }
 
 .host-item:hover .host-icon {
-  background: rgba(102, 126, 234, 0.2);
-  transform: scale(1.05);
+  background: linear-gradient(
+    135deg,
+    rgba(102, 126, 234, 0.25) 0%,
+    rgba(118, 75, 162, 0.25) 100%
+  );
+  transform: scale(1.1) rotate(5deg);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .host-icon .el-icon {
-  font-size: 16px !important;
+  font-size: 20px !important;
 }
 
 .host-info {
   flex: 1;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 .host-name {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: 0.2px;
-  transition: color 0.3s;
+  letter-spacing: 0.3px;
+  transition: all 0.3s;
 }
 
 .host-item:hover .host-name {
-  color: var(--accent-color);
+  color: #667eea;
+  transform: translateX(2px);
 }
 
 .host-details {
   display: flex;
-  gap: 6px;
-  font-size: 10px;
+  gap: 8px;
+  font-size: 11px;
   color: var(--text-secondary);
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   transition: color 0.3s;
@@ -1430,16 +1582,20 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 3px;
+  padding: 4px 10px;
+  background: rgba(102, 126, 234, 0.08);
+  border-radius: 6px;
   transition: all 0.3s;
+  font-weight: 500;
+  border: 1px solid rgba(102, 126, 234, 0.1);
 }
 
 .host-item:hover .host-address,
 .host-item:hover .host-user {
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(102, 126, 234, 0.15);
+  border-color: rgba(102, 126, 234, 0.25);
   color: var(--text-primary);
+  transform: translateY(-1px);
 }
 
 /* 对话框样式调整 */

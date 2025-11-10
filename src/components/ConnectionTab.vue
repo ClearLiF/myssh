@@ -49,9 +49,20 @@ const handleConnected = (id) => {
 
 // 处理打开 SFTP 请求
 const handleOpenSFTP = (data) => {
+  console.log('📂 ConnectionTab 处理打开 SFTP 请求')
+  console.log('  - data.connectionId:', data.connectionId)
+  console.log('  - connectionId.value:', connectionId.value)
+  
+  const finalConnectionId = data.connectionId || connectionId.value
+  console.log('  - 最终 connectionId:', finalConnectionId)
+  
+  if (!finalConnectionId) {
+    console.error('❌ connectionId 为空，无法打开 SFTP')
+  }
+  
   emit('open-sftp', {
     connection: props.connection,
-    connectionId: data.connectionId || connectionId.value
+    connectionId: finalConnectionId
   })
 }
 
