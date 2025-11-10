@@ -9,6 +9,10 @@
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on tcp:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
+    "electron:build:mac": "npm run build && electron-builder --mac",
+    "electron:build:win": "npm run build && electron-builder --win",
+    "electron:build:linux": "npm run build && electron-builder --linux",
+    "electron:build:all": "npm run build && electron-builder --mac --win --linux",
     "preview": "vite preview",
     "start": "electron ."
   },
@@ -46,28 +50,32 @@
   "build": {
     "appId": "com.example.myssh",
     "productName": "MySSH",
+    "asar": false,
     "directories": {
       "output": "dist-electron"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "node_modules/**/*"
-    ],
-    "asarUnpack": [
-      "node_modules/**/build/**/*.node",
-      "node_modules/**/*.node",
-      "node_modules/ssh2/**/*",
-      "node_modules/cpu-features/**/*",
-      "node_modules/iconv-corefoundation/**/*"
+      "node_modules/**/*",
+      "!node_modules/**/test/**",
+      "!node_modules/**/tests/**",
+      "!node_modules/**/*.md",
+      "!node_modules/**/.git*",
+      "!node_modules/**/example/**",
+      "!node_modules/**/examples/**"
     ],
     "mac": {
       "icon": "build/icon.icns",
       "category": "public.app-category.utilities",
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.inherit.plist",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "MySSH 需要访问本地网络以连接到局域网内的 SSH 服务器",
+        "NSBonjourServices": ["_ssh._tcp."]
+      },
       "target": [
         {
           "target": "dmg",
@@ -80,26 +88,53 @@
       ]
     },
     "win": {
-      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-${arch}-win.${ext}",
+      "requestedExecutionLevel": "asInvoker",
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
         },
         {
           "target": "zip",
-          "arch": ["x64", "ia32"]
+          "arch": ["x64"]
         }
       ]
     },
-    "linux": {
-      "icon": "build/icon.png"
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.exe"
     },
     "nsis": {
       "oneClick": false,
+      "allowElevation": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "shortcutName": "MySSH",
+      "artifactName": "${productName}-${version}-setup.${ext}",
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "menuCategory": false,
+      "warningsAsErrors": false
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Utility",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        },
+        {
+          "target": "deb",
+          "arch": ["x64"]
+        }
+      ]
     }
   }
 }

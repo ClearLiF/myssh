@@ -399,6 +399,21 @@ ipcMain.handle('ssh:connect', async (event, config) => {
       stack: error.stack
     })
     
+    // 在打包环境中输出更多调试信息
+    if (app.isPackaged) {
+      console.error('打包环境下的错误，可能是模块加载问题')
+      console.error('App Path:', app.getAppPath())
+      console.error('Resource Path:', process.resourcesPath)
+      
+      // 检查关键模块是否存在
+      try {
+        const ssh2Path = require.resolve('ssh2')
+        console.log('ssh2 模块路径:', ssh2Path)
+      } catch (e) {
+        console.error('无法找到 ssh2 模块:', e)
+      }
+    }
+    
     // 提供更详细的错误信息
     let errorMessage = error.message || 'SSH 连接失败'
     
@@ -427,6 +442,12 @@ ipcMain.handle('ssh:connect', async (event, config) => {
       errorMessage = 'SSH 连接失败: 认证失败，请检查用户名、密码或私钥是否正确'
     } else if (error.message && error.message.includes('timeout')) {
       errorMessage = 'SSH 连接失败: 连接超时，请检查网络连接和防火墙设置'
+    } else if (app.isPackaged && !error.code) {
+      // 在打包环境中，如果没有明确的错误代码，可能是模块加载问题
+      errorMessage = 'SSH 连接失败: 可能是应用打包问题。请尝试以下操作：\n' +
+                   '• 重新安装应用\n' +
+                   '• 检查防火墙设置\n' +
+                   '• 原始错误: ' + error.message
     }
     
     return {
